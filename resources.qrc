@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/enel_assist" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>

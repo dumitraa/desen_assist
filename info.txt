@@ -1,0 +1,9 @@
+I finalized preprocessing and generating the csv file.
+Normally it should've been an xlsx file however due to modules needing to be installed on the user's computers I resorted to just generating the csv files and the users having to export them to xlsx afterwards until I find a solution.
+We don't know if these forms are the finalized ones since they need to check in with the people they're submitting the files to. So changes may be needed when generating the files.
+
+I didn't yet do the validation because:
+1. It's not urgent
+2. It.. has quite a few bugs. It doesn't show 4 elements/page and I need to also put a scroll on it. I also didn't check to see if it correctly validates things. It does change them accordingly once you save.
+
+Everything else is okay.
