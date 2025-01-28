@@ -290,25 +290,55 @@ class DesenAssist:
     def verify_pole_numbering(self):
         """
         Verifies and sorts a field numerically, adding an "order" column for verification.
+        1. Refactor fields for STALP_JT layer - new scratch layer - "Verificare_numerotare_stalpi"
+        2. Filter/only take into account features which has "JT" included in "TIP_CIR"
+        3. Add a new field "ID_PROVIZ" to the layer
+        4. Populate it with @row_number - 1 (for the filtered features)
+        5. Create new column "MATCH_STATUS" and populate it with "Da" if "ID_PROVIZ" == "DENUM", else "Nu"
         """
-        # layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
-        # if not layer:
-        #     raise ValueError(f"Layer STALP_JT not found.")
+        # Step 1: Get the original layer (replace 'layer_name' with your actual layer name)
+        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
 
-        # # Add order column
-        # if "order" not in [field.name() for field in layer.fields()]:
-        #     layer.dataProvider().addAttributes([QgsField("order", QVariant.Int)])
-        #     layer.updateFields()
+        # Step 2: Filter features with "JT" in the "TIP_CIR" field
+        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
 
-        # features = list(layer.getFeatures())
-        # sorted_features = sorted(features, key=lambda f: f[target_field])
+        # Step 3: Create a new scratch layer
+        scratch_layer = QgsVectorLayer(
+            "Point?crs=" + original_layer.crs().toWkt(), 
+            "Verificare_numerotare_stalpi", 
+            "memory"
+        )
+        scratch_layer_data = scratch_layer.dataProvider()
 
-        # for index, feature in enumerate(sorted_features):
-        #     feature["order"] = index + 1
-        #     layer.updateFeature(feature)
+        # Add only the necessary fields
+        fields = QgsFields()
+        fields.append(QgsField("fid", QVariant.Int))
+        fields.append(QgsField("TIP_CIR", QVariant.String))
+        fields.append(QgsField("ID_PROVIZ", QVariant.Int))
+        fields.append(QgsField("DENUM", QVariant.String))
+        fields.append(QgsField("MATCH_STATUS", QVariant.String))
+        scratch_layer_data.addAttributes(fields)
+        scratch_layer.updateFields()
 
-        # print(f"Column numbering verified and 'order' column updated for layer STALP_JT.")
-        pass
+        # Step 4: Populate the new layer with filtered features and compute new fields
+        for idx, feature in enumerate(jt_features):
+            new_feature = QgsFeature()
+            new_feature.setGeometry(feature.geometry())
+            new_feature.setFields(scratch_layer.fields())
+
+            # Add new fields
+            new_feature["fid"] = feature.id()
+            new_feature["TIP_CIR"] = feature["TIP_CIR"]
+            new_feature["ID_PROVIZ"] = idx  # Row number starts at 0
+            new_feature["DENUM"] = feature["DENUM"]
+            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == int(feature["DENUM"]) else "Nu"
+
+            # Add feature to the scratch layer
+            scratch_layer_data.addFeature(new_feature)
+
+        # Add the scratch layer to the project
+        QgsProject.instance().addMapLayer(scratch_layer)
+
 
 #. B.	Denumirea strazilor pentru stalpi - WORKING BUT NOTE: THEY NEED TO TEST IT TO SEE IF IT WORKS THE WAY THEY WANT
     def complete_street_names_poles(self):
@@ -642,7 +672,7 @@ class DesenAssist:
         QgsProject.instance().write()
     
     
-# G.	Verificarea denumirilor strazilor din layerul STALP_JT (layerul din renns va avea denumirea “nr_postale”)
+ # G.	Verificarea denumirilor strazilor din layerul STALP_JT (layerul din renns va avea denumirea “nr_postale”) - WORKING
     
     def verify_street_names_poles(self):
         def normalize_text(text):
