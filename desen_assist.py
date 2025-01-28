@@ -27,7 +27,6 @@ from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator # type: ig
 from qgis.PyQt.QtGui import QIcon # type: ignore
 from qgis.PyQt.QtWidgets import QAction, QMessageBox # type: ignore
 from qgis.core import ( # type: ignore
-    edit,
     QgsFeature,
     QgsField,
     QgsFields,
@@ -35,13 +34,12 @@ from qgis.core import ( # type: ignore
     QgsProcessingContext,
     QgsProject,
     QgsVectorLayer,
-    QgsApplication,
-    QgsProcessingFeatureSourceDefinition,
     QgsProcessingFeedback,
     Qgis
     )
 from pathlib import Path
 import processing # type: ignore
+import re
 
 
 
@@ -289,12 +287,7 @@ class DesenAssist:
 
     def verify_pole_numbering(self):
         """
-        Verifies and sorts a field numerically, adding an "order" column for verification.
-        1. Refactor fields for STALP_JT layer - new scratch layer - "Verificare_numerotare_stalpi"
-        2. Filter/only take into account features which has "JT" included in "TIP_CIR"
-        3. Add a new field "ID_PROVIZ" to the layer
-        4. Populate it with @row_number - 1 (for the filtered features)
-        5. Create new column "MATCH_STATUS" and populate it with "Da" if "ID_PROVIZ" == "DENUM", else "Nu"
+        Verifies and sorts features numerically by the numeric value of DENUM after removing letters.
         """
         # Step 1: Get the original layer (replace 'layer_name' with your actual layer name)
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
@@ -302,26 +295,37 @@ class DesenAssist:
         # Step 2: Filter features with "JT" in the "TIP_CIR" field
         jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
 
-        # Step 3: Create a new scratch layer
+        # Step 3: Helper function to remove letters and extract numeric part from DENUM
+        def clean_denum(denum):
+            if denum:
+                # Remove all non-digit characters
+                numeric_part = re.sub(r'\D', '', denum)  # Keep only digits
+                return int(numeric_part) if numeric_part else float('inf')  # Non-numeric becomes infinity
+            return float('inf')
+
+        # Step 4: Sort features by the cleaned numeric part of DENUM
+        jt_features_sorted = sorted(jt_features, key=lambda f: clean_denum(f["DENUM"]))
+
+        # Step 5: Create a new scratch layer
         scratch_layer = QgsVectorLayer(
-            "Point?crs=" + original_layer.crs().toWkt(), 
-            "Verificare_numerotare_stalpi", 
+            "Point?crs=" + original_layer.crs().toWkt(),
+            "Verificare_numerotare_stalpi",
             "memory"
         )
         scratch_layer_data = scratch_layer.dataProvider()
 
         # Add only the necessary fields
         fields = QgsFields()
-        fields.append(QgsField("fid", QVariant.Int))
+        fields.append(QgsField("fid", QVariant.Int))  # Original feature ID
         fields.append(QgsField("TIP_CIR", QVariant.String))
-        fields.append(QgsField("ID_PROVIZ", QVariant.Int))
-        fields.append(QgsField("DENUM", QVariant.String))
+        fields.append(QgsField("ID_PROVIZ", QVariant.Int))  # Row number (index)
+        fields.append(QgsField("DENUM", QVariant.Int))
         fields.append(QgsField("MATCH_STATUS", QVariant.String))
         scratch_layer_data.addAttributes(fields)
         scratch_layer.updateFields()
 
-        # Step 4: Populate the new layer with filtered features and compute new fields
-        for idx, feature in enumerate(jt_features):
+        # Step 6: Populate the new layer with sorted features and compute new fields
+        for idx, feature in enumerate(jt_features_sorted):  # Enumerate in the sorted DENUM order
             new_feature = QgsFeature()
             new_feature.setGeometry(feature.geometry())
             new_feature.setFields(scratch_layer.fields())
@@ -331,13 +335,15 @@ class DesenAssist:
             new_feature["TIP_CIR"] = feature["TIP_CIR"]
             new_feature["ID_PROVIZ"] = idx  # Row number starts at 0
             new_feature["DENUM"] = feature["DENUM"]
-            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == int(feature["DENUM"]) else "Nu"
+            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == clean_denum(feature["DENUM"]) else "Nu"
 
             # Add feature to the scratch layer
             scratch_layer_data.addFeature(new_feature)
 
         # Add the scratch layer to the project
         QgsProject.instance().addMapLayer(scratch_layer)
+
+
 
 
 #. B.	Denumirea strazilor pentru stalpi - WORKING BUT NOTE: THEY NEED TO TEST IT TO SEE IF IT WORKS THE WAY THEY WANT
