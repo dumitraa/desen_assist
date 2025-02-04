@@ -40,10 +40,7 @@ from qgis.core import ( # type: ignore
 from pathlib import Path
 import processing # type: ignore
 import re
-
-
-
-
+from collections import defaultdict
 
 import os
 import os.path
@@ -283,49 +280,59 @@ class DesenAssist:
         
         return data_source
 
+    def clean_denum(self, denum):
+        if denum:
+            # Extract numeric and alphabetic parts
+            match = re.match(r'(\d+)([A-Za-z]*)', denum)
+            if match:
+                numeric_part = int(match.group(1))  # Numeric part
+                alpha_part = match.group(2).upper()  # Alphabetic part (uppercased)
+                return (numeric_part, alpha_part)
+        return (float('inf'), '')  # Non-matching cases go to the end
+
 # A.	Verificare numerotare stalpi
 
     def verify_pole_numbering(self):
+        self.verify_pole_numbering_br()
+        self.verify_pole_numbering_jt()
+        QMessageBox.information(None, "Verificare numerotare stâlpi", "Verificare finalizată cu succes! Stâlpii au fost sortați și numerotați corect.")
+
+    def verify_pole_numbering_br(self):
         """
-        Verifies and sorts features numerically by the numeric value of DENUM after removing letters.
+        Verifies and sorts features numerically by the alphanumeric value of DENUM.
+        Also, ensures DENUM values are uppercased and modifies the original layer for "JT" features.
         """
-        # Step 1: Get the original layer (replace 'layer_name' with your actual layer name)
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
 
-        # Step 2: Filter features with "JT" in the "TIP_CIR" field
-        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
-
-        # Step 3: Helper function to remove letters and extract numeric part from DENUM
-        def clean_denum(denum):
+        # Uppercase the DENUM field in the original layer and save changes
+        original_layer.startEditing()
+        for feature in original_layer.getFeatures():
+            denum = feature["DENUM"]
             if denum:
-                # Remove all non-digit characters
-                numeric_part = re.sub(r'\D', '', denum)  # Keep only digits
-                return int(numeric_part) if numeric_part else float('inf')  # Non-numeric becomes infinity
-            return float('inf')
+                feature["DENUM"] = denum.upper()
+                original_layer.updateFeature(feature)
+        original_layer.commitChanges()
 
-        # Step 4: Sort features by the cleaned numeric part of DENUM
-        jt_features_sorted = sorted(jt_features, key=lambda f: clean_denum(f["DENUM"]))
+        # Sort features by the cleaned alphanumeric part of DENUM
+        jt_features = [f for f in original_layer.getFeatures() if f["TIP_CIR"] == "BR"]
+        jt_features_sorted = sorted(jt_features, key=lambda f: self.clean_denum(f["DENUM"]))
 
-        # Step 5: Create a new scratch layer
+        # Create a new scratch layer for BR features
         scratch_layer = QgsVectorLayer(
             "Point?crs=" + original_layer.crs().toWkt(),
-            "Verificare_numerotare_stalpi",
+            "Verificare_auxiliari",
             "memory"
         )
         scratch_layer_data = scratch_layer.dataProvider()
 
-        # Add only the necessary fields
         fields = QgsFields()
         fields.append(QgsField("fid", QVariant.Int))  # Original feature ID
         fields.append(QgsField("TIP_CIR", QVariant.String))
-        fields.append(QgsField("ID_PROVIZ", QVariant.Int))  # Row number (index)
-        fields.append(QgsField("DENUM", QVariant.Int))
-        fields.append(QgsField("MATCH_STATUS", QVariant.String))
+        fields.append(QgsField("DENUM", QVariant.String))
         scratch_layer_data.addAttributes(fields)
         scratch_layer.updateFields()
 
-        # Step 6: Populate the new layer with sorted features and compute new fields
-        for idx, feature in enumerate(jt_features_sorted):  # Enumerate in the sorted DENUM order
+        for idx, feature in enumerate(jt_features_sorted):
             new_feature = QgsFeature()
             new_feature.setGeometry(feature.geometry())
             new_feature.setFields(scratch_layer.fields())
@@ -333,15 +340,68 @@ class DesenAssist:
             # Add new fields
             new_feature["fid"] = feature.id()
             new_feature["TIP_CIR"] = feature["TIP_CIR"]
-            new_feature["ID_PROVIZ"] = idx  # Row number starts at 0
             new_feature["DENUM"] = feature["DENUM"]
-            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == clean_denum(feature["DENUM"]) else "Nu"
 
-            # Add feature to the scratch layer
             scratch_layer_data.addFeature(new_feature)
 
-        # Add the scratch layer to the project
         QgsProject.instance().addMapLayer(scratch_layer)
+
+
+    def verify_pole_numbering_jt(self):
+        def generate_correct_denum(ordered_keys):
+            """Ensures proper sequence and corrects missing numbers."""
+            corrected = []
+            base_tracker = defaultdict(list)
+
+            try:
+                for base, suffix in ordered_keys:
+                    base_tracker[base].append(suffix)
+            except Exception as e:
+                QgsMessageLog.logMessage(f"An error occurred while grouping by numeric base: {e}", 'DesenAssist', Qgis.Critical)
+
+            try:
+                sorted_bases = sorted(base_tracker.keys())
+                expected_base = sorted_bases[0] 
+
+                for base in sorted_bases:
+                    suffixes = sorted(base_tracker[base])  # Ensure suffix order
+                    
+                    # If a gap exists, fill it with the correct base number
+                    while base > expected_base:
+                        corrected.append((expected_base, ""))  # Fill missing number
+                        expected_base += 1
+
+                    # Assign suffixes correctly
+                    expected_suffixes = ["" if i == 0 else chr(65 + i - 1) for i in range(len(suffixes))]
+                    for old_suffix, new_suffix in zip(suffixes, expected_suffixes):
+                        corrected.append((expected_base, new_suffix))
+                    
+                    expected_base += 1  # Move to next expected number
+            except Exception as e:
+                QgsMessageLog.logMessage(f"An error occurred while generating corrected numbering: {e}", 'DesenAssist', Qgis.Critical)
+
+            return corrected
+
+        
+        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        jt_features_original = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
+        
+        # Extract existing DENUM values and sort them
+        denum_map = {f.id(): self.clean_denum(f["DENUM"]) for f in jt_features_original}
+        sorted_items = sorted(denum_map.items(), key=lambda x: x[1])  # Sort by (number, suffix)
+        
+        # Generate corrected numbering
+        corrected_order = generate_correct_denum([item[1] for item in sorted_items])
+        
+        # Apply changes
+        original_layer.startEditing()
+        for (feature_id, _), (new_base, new_suffix) in zip(sorted_items, corrected_order):
+            new_denum = f"{new_base}{new_suffix}"  # Format as "number + suffix"
+            feature = original_layer.getFeature(feature_id)
+            feature["DENUM"] = new_denum
+            original_layer.updateFeature(feature)
+        
+        original_layer.commitChanges()
 
 
 
