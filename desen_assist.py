@@ -348,78 +348,66 @@ class DesenAssist:
         # Add the scratch layer to the project
         QgsProject.instance().addMapLayer(scratch_layer)
 
+
     def verify_pole_numbering_jt(self):
         """
         Normalizes DENUM fields in the STALP_JT layer (features where TIP_CIR includes 'JT') so that:
         - Consecutive duplicates with no suffix (e.g. 11, 11, 12) become 11, 12, 13
         - If there's a suffix involved (e.g. 11, 11A, 11A), everything shares the same base and suffixes start at A:
             e.g. => 11, 11A, 11B
+        - Ensures base numbers are sequential with no gaps (e.g. 41, 43 becomes 41, 42)
         """
 
-        # --- 1) Grab the layer and the relevant features
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
         jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
 
-        # --- 2) Parse each feature's DENUM into (base, suffix) and sort
-        # We'll rely on your existing self.clean_denum(...) to produce (int_base, str_suffix).
-        # If you need your own parsing, define a helper function here instead.
         denum_map = {}
         for feat in jt_features:
             feature_id = feat.id()
             base_suffix = self.clean_denum(feat["DENUM"])  # returns (base_int, suffix_str)
             denum_map[feature_id] = base_suffix
 
-        # Sort by base first, then suffix (alphabetically)
         sorted_items = sorted(denum_map.items(), key=lambda x: (x[1][0], x[1][1]))
 
-        # --- 3) Walk through sorted items, assigning new (base, suffix) combos
-        assigned_bases = set()            # All bases already used
-        base_suffix_count = defaultdict(int)  # base -> how many suffixes have been assigned so far
-        final_assignments = {}            # feature_id -> (new_base, new_suffix)
-
-        def next_unused_base(candidate):
-            """Increment until 'candidate' is a base we haven't used yet."""
-            while candidate in assigned_bases:
+        assigned_bases = set()
+        base_suffix_count = defaultdict(int)
+        final_assignments = {}
+        
+        all_bases = sorted(set(base for _, (base, _) in sorted_items))
+        min_base = all_bases[0] if all_bases else 1
+        
+        def next_unused_base(candidate, used_bases):
+            """Finds the next available base number without gaps."""
+            while candidate in used_bases:
                 candidate += 1
             return candidate
 
+        sequential_bases = {old: new for old, new in zip(all_bases, range(min_base, min_base + len(all_bases)))}
+        
         for feat_id, (base, suffix) in sorted_items:
-            # standardize suffix to uppercase (or not, if you prefer)
             suffix = suffix.upper()
-
-            # If we haven't used this base yet...
-            if base not in assigned_bases:
-                if suffix == "":
-                    # perfect: first occurrence is "base" with no suffix
-                    final_assignments[feat_id] = (base, "")
-                    assigned_bases.add(base)
-                    base_suffix_count[base] = 0
-                else:
-                    # the first time we see base N it has a suffix => forcibly rename to no suffix
-                    final_assignments[feat_id] = (base, "")
-                    assigned_bases.add(base)
-                    base_suffix_count[base] = 0
+            new_base = sequential_bases[base]  # Remap base to sequential numbering
+            
+            if new_base not in assigned_bases:
+                final_assignments[feat_id] = (new_base, "")
+                assigned_bases.add(new_base)
+                base_suffix_count[new_base] = 0
             else:
-                # We've seen this base before
                 if suffix == "":
-                    # Another item with the same base, no suffix => treat it like a new base
-                    new_base = next_unused_base(base)
+                    new_base = next_unused_base(new_base, assigned_bases)
                     final_assignments[feat_id] = (new_base, "")
                     assigned_bases.add(new_base)
                     base_suffix_count[new_base] = 0
                 else:
-                    # Another item with the same base, *with* a suffix => expand suffixes on the same base
-                    cur_count = base_suffix_count[base]
-                    # If cur_count=0, that means we've only assigned "no suffix" so far; next suffix => "A"
+                    cur_count = base_suffix_count[new_base]
                     letter = chr(65 + cur_count)  # 65 is 'A'
-                    final_assignments[feat_id] = (base, letter)
-                    base_suffix_count[base] = cur_count + 1
+                    final_assignments[feat_id] = (new_base, letter)
+                    base_suffix_count[new_base] = cur_count + 1
 
-        # --- 4) Apply changes back to the layer
         original_layer.startEditing()
 
         for feat_id, (new_base, new_suffix) in final_assignments.items():
-            new_denum = f"{new_base}{new_suffix}"  # e.g. "11", "11A", ...
+            new_denum = f"{new_base}{new_suffix}"
             try:
                 feature = original_layer.getFeature(feat_id)
                 feature["DENUM"] = new_denum
@@ -432,6 +420,7 @@ class DesenAssist:
                 )
 
         original_layer.commitChanges()
+
 
 
 
