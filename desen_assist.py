@@ -291,7 +291,6 @@ class DesenAssist:
         return (float('inf'), '')  # Non-matching cases go to the end
 
 # A.	Verificare numerotare stalpi
-
     def verify_pole_numbering(self):
         self.verify_pole_numbering_br()
         self.verify_pole_numbering_jt()
@@ -313,8 +312,7 @@ class DesenAssist:
                 original_layer.updateFeature(feature)
         original_layer.commitChanges()
 
-        # Sort features by the cleaned alphanumeric part of DENUM
-        jt_features = [f for f in original_layer.getFeatures() if f["TIP_CIR"] == "BR"]
+        jt_features = [f for f in original_layer.getFeatures() if re.search(r'[A-Za-z]', f["DENUM"])]
         jt_features_sorted = sorted(jt_features, key=lambda f: self.clean_denum(f["DENUM"]))
 
         # Create a new scratch layer for BR features
@@ -325,6 +323,7 @@ class DesenAssist:
         )
         scratch_layer_data = scratch_layer.dataProvider()
 
+        # Add only the necessary fields
         fields = QgsFields()
         fields.append(QgsField("fid", QVariant.Int))  # Original feature ID
         fields.append(QgsField("TIP_CIR", QVariant.String))
@@ -332,7 +331,8 @@ class DesenAssist:
         scratch_layer_data.addAttributes(fields)
         scratch_layer.updateFields()
 
-        for idx, feature in enumerate(jt_features_sorted):
+        # Populate the new layer with sorted features and compute new fields
+        for idx, feature in enumerate(jt_features_sorted):  # Enumerate in the sorted DENUM order
             new_feature = QgsFeature()
             new_feature.setGeometry(feature.geometry())
             new_feature.setFields(scratch_layer.fields())
@@ -342,65 +342,95 @@ class DesenAssist:
             new_feature["TIP_CIR"] = feature["TIP_CIR"]
             new_feature["DENUM"] = feature["DENUM"]
 
+            # Add feature to the scratch layer
             scratch_layer_data.addFeature(new_feature)
 
+        # Add the scratch layer to the project
         QgsProject.instance().addMapLayer(scratch_layer)
 
-
     def verify_pole_numbering_jt(self):
-        def generate_correct_denum(ordered_keys):
-            """Ensures proper sequence and corrects missing numbers."""
-            corrected = []
-            base_tracker = defaultdict(list)
+        """
+        Normalizes DENUM fields in the STALP_JT layer (features where TIP_CIR includes 'JT') so that:
+        - Consecutive duplicates with no suffix (e.g. 11, 11, 12) become 11, 12, 13
+        - If there's a suffix involved (e.g. 11, 11A, 11A), everything shares the same base and suffixes start at A:
+            e.g. => 11, 11A, 11B
+        """
 
-            try:
-                for base, suffix in ordered_keys:
-                    base_tracker[base].append(suffix)
-            except Exception as e:
-                QgsMessageLog.logMessage(f"An error occurred while grouping by numeric base: {e}", 'DesenAssist', Qgis.Critical)
-
-            try:
-                sorted_bases = sorted(base_tracker.keys())
-                expected_base = sorted_bases[0] 
-
-                for base in sorted_bases:
-                    suffixes = sorted(base_tracker[base])  # Ensure suffix order
-                    
-                    # If a gap exists, fill it with the correct base number
-                    while base > expected_base:
-                        corrected.append((expected_base, ""))  # Fill missing number
-                        expected_base += 1
-
-                    # Assign suffixes correctly
-                    expected_suffixes = ["" if i == 0 else chr(65 + i - 1) for i in range(len(suffixes))]
-                    for old_suffix, new_suffix in zip(suffixes, expected_suffixes):
-                        corrected.append((expected_base, new_suffix))
-                    
-                    expected_base += 1  # Move to next expected number
-            except Exception as e:
-                QgsMessageLog.logMessage(f"An error occurred while generating corrected numbering: {e}", 'DesenAssist', Qgis.Critical)
-
-            return corrected
-
-        
+        # --- 1) Grab the layer and the relevant features
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
-        jt_features_original = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
-        
-        # Extract existing DENUM values and sort them
-        denum_map = {f.id(): self.clean_denum(f["DENUM"]) for f in jt_features_original}
-        sorted_items = sorted(denum_map.items(), key=lambda x: x[1])  # Sort by (number, suffix)
-        
-        # Generate corrected numbering
-        corrected_order = generate_correct_denum([item[1] for item in sorted_items])
-        
-        # Apply changes
+        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
+
+        # --- 2) Parse each feature's DENUM into (base, suffix) and sort
+        # We'll rely on your existing self.clean_denum(...) to produce (int_base, str_suffix).
+        # If you need your own parsing, define a helper function here instead.
+        denum_map = {}
+        for feat in jt_features:
+            feature_id = feat.id()
+            base_suffix = self.clean_denum(feat["DENUM"])  # returns (base_int, suffix_str)
+            denum_map[feature_id] = base_suffix
+
+        # Sort by base first, then suffix (alphabetically)
+        sorted_items = sorted(denum_map.items(), key=lambda x: (x[1][0], x[1][1]))
+
+        # --- 3) Walk through sorted items, assigning new (base, suffix) combos
+        assigned_bases = set()            # All bases already used
+        base_suffix_count = defaultdict(int)  # base -> how many suffixes have been assigned so far
+        final_assignments = {}            # feature_id -> (new_base, new_suffix)
+
+        def next_unused_base(candidate):
+            """Increment until 'candidate' is a base we haven't used yet."""
+            while candidate in assigned_bases:
+                candidate += 1
+            return candidate
+
+        for feat_id, (base, suffix) in sorted_items:
+            # standardize suffix to uppercase (or not, if you prefer)
+            suffix = suffix.upper()
+
+            # If we haven't used this base yet...
+            if base not in assigned_bases:
+                if suffix == "":
+                    # perfect: first occurrence is "base" with no suffix
+                    final_assignments[feat_id] = (base, "")
+                    assigned_bases.add(base)
+                    base_suffix_count[base] = 0
+                else:
+                    # the first time we see base N it has a suffix => forcibly rename to no suffix
+                    final_assignments[feat_id] = (base, "")
+                    assigned_bases.add(base)
+                    base_suffix_count[base] = 0
+            else:
+                # We've seen this base before
+                if suffix == "":
+                    # Another item with the same base, no suffix => treat it like a new base
+                    new_base = next_unused_base(base)
+                    final_assignments[feat_id] = (new_base, "")
+                    assigned_bases.add(new_base)
+                    base_suffix_count[new_base] = 0
+                else:
+                    # Another item with the same base, *with* a suffix => expand suffixes on the same base
+                    cur_count = base_suffix_count[base]
+                    # If cur_count=0, that means we've only assigned "no suffix" so far; next suffix => "A"
+                    letter = chr(65 + cur_count)  # 65 is 'A'
+                    final_assignments[feat_id] = (base, letter)
+                    base_suffix_count[base] = cur_count + 1
+
+        # --- 4) Apply changes back to the layer
         original_layer.startEditing()
-        for (feature_id, _), (new_base, new_suffix) in zip(sorted_items, corrected_order):
-            new_denum = f"{new_base}{new_suffix}"  # Format as "number + suffix"
-            feature = original_layer.getFeature(feature_id)
-            feature["DENUM"] = new_denum
-            original_layer.updateFeature(feature)
-        
+
+        for feat_id, (new_base, new_suffix) in final_assignments.items():
+            new_denum = f"{new_base}{new_suffix}"  # e.g. "11", "11A", ...
+            try:
+                feature = original_layer.getFeature(feat_id)
+                feature["DENUM"] = new_denum
+                original_layer.updateFeature(feature)
+            except Exception as e:
+                QgsMessageLog.logMessage(
+                    f"Error updating feature {feat_id} -> {new_base}{new_suffix}: {e}",
+                    'DesenAssist',
+                    Qgis.Critical
+                )
+
         original_layer.commitChanges()
 
 
