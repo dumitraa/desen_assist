@@ -849,23 +849,24 @@ class DesenAssist:
 
             scratch_layer = None
             for feature in layer.getFeatures():
-                incomplete_columns = set()
-                for column in columns:
-                    if column == 'NR_CIR_FO':
-                        nr_cir_fo_val = feature['NR_CIR_FO']
-                        prop_fo_val = feature['PROP_FO']
-                        
-                        if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
-                            incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
-                            
-                    if column not in [field.name() for field in layer.fields()]:
-                        continue
-                    value = feature[column]
-                    if value in config.NULL_VALUES:
-                        incomplete_columns.add(column)
-                        
-
+                if layer_name == "STALP_JT":
+                    incomplete_columns = set()
+                    nr_cir_fo_val = feature['NR_CIR_FO']
+                    prop_fo_val = feature['PROP_FO']
                     
+                    if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
+                        QgsMessageLog.logMessage(f"Feature {feature.id()} has NR_CIR_FO but PROP_FO is empty.", 'DesenAssist', Qgis.Warning)
+                        incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
+                    else:
+                        QgsMessageLog.logMessage(f"Feature {feature.id()} has NR_CIR_FO and PROP_FO.", 'DesenAssist', Qgis.Info)
+                                
+                    for column in columns:
+                        if column not in [field.name() for field in layer.fields()]:
+                            continue
+                        value = feature[column]
+                        if value in config.NULL_VALUES:
+                            incomplete_columns.add(column)
+                        
                 if incomplete_columns:
                     if not scratch_layer:
                         scratch_layer = self.create_scratch_layer(f"{layer_name}_coloane_necompletate", geom_type)
@@ -1018,10 +1019,8 @@ class DesenAssist:
 
                 # Ensure the boolean value matches the expected logic
                 if is_completed and bool_value.lower() not in [1, 'true', 'yes', 'da']:
-                    QgsMessageLog.logMessage(f"Coloanele booleane sunt completate greșit: {key_field} is completed but... {bool_field} with {bool_value}", 'DesenAssist', Qgis.Critical)
                     incorrect_columns.add(bool_field)  # Expected "true" but got something else
                 elif not is_completed and bool_value.lower() not in [0, 'false', 'no', 'nu']:
-                    QgsMessageLog.logMessage(f"Coloanele booleane sunt completate greșit: {key_field} is not completed but... {bool_field} with {bool_value}", 'DesenAssist', Qgis.Critical)
                     incorrect_columns.add(bool_field)  # Expected "false" but got something else
 
             if incorrect_columns:
