@@ -48,7 +48,7 @@ import os.path
 from .resources import *
 
 from .func.helper_functions import HelperBase, SHPProcessor
-
+from . import config
 
 class DesenAssist:
     """QGIS Plugin Implementation."""
@@ -239,6 +239,13 @@ class DesenAssist:
                 icon_path= str(self.plugin_path('icons/9.png')),
                 enabled_flag=True
             ),
+            self.add_action(
+                "Verificare greseli (coloane alfanumerice, colerari gresite) - STALP_JT",
+                text=self.tr(u'Verificare greseli'),
+                callback=self.verify_mistakes,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/10.png')),
+            )
         ]
         
         # will be set False in run()
@@ -266,7 +273,6 @@ class DesenAssist:
         # Search for the layer by name in the current project
         layers = QgsProject.instance().mapLayersByName(layer_name)
         if not layers:
-            print(f"Layer '{layer_name}' not found in the project.")
             return None
         
         # Get the first matching layer
@@ -281,6 +287,7 @@ class DesenAssist:
         return data_source
 
     def clean_denum(self, denum):
+        denum = str(denum)
         if denum:
             # Extract numeric and alphabetic parts
             match = re.match(r'(\d+)([A-Za-z]*)', denum)
@@ -312,7 +319,7 @@ class DesenAssist:
                 original_layer.updateFeature(feature)
         original_layer.commitChanges()
 
-        jt_features = [f for f in original_layer.getFeatures() if re.search(r'[A-Za-z]', f["DENUM"])]
+        jt_features = [f for f in original_layer.getFeatures() if re.search(r'[A-Za-z]', str(f["DENUM"]))]
         jt_features_sorted = sorted(jt_features, key=lambda f: self.clean_denum(f["DENUM"]))
 
         # Create a new scratch layer for BR features
@@ -532,7 +539,6 @@ class DesenAssist:
 
         except Exception as e:
             QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
-            print(f"An error occurred: {e}")
 
 
 
@@ -695,9 +701,8 @@ class DesenAssist:
 
             # Add the output to the project
             QgsProject.instance().addMapLayer(joined_layer)
-            print("Street name validation complete. Joined layer with MATCH_STATUS added to the project.")
         except Exception as e:
-            print(f"An error occurred while running the spatial join: {e}")
+            QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
 
         
 # F.	Completare automata a coloanei “PROP” de la STALP_JT - WORKING
@@ -718,7 +723,7 @@ class DesenAssist:
         QgsProject.instance().addMapLayer(stalp_layer)
 
         if not stalp_layer:
-            print("Layer is not loaded.")
+            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
         else:
             if 'MATCH_STATUS' not in [field.name() for field in stalp_layer.fields()]:
                 stalp_layer.dataProvider().addAttributes([QgsField('MATCH_STATUS', QVariant.String)])
@@ -750,10 +755,8 @@ class DesenAssist:
                 elif desc_value in terti_codes and prop_value == 'TERTI':
                     feature['MATCH_STATUS'] = 'Da'
                 stalp_layer.updateFeature(feature)
-            if stalp_layer.commitChanges():
-                print("Layer successfully updated.")
-            else:
-                print("Failed to commit changes. Please check for any errors.")
+            if not stalp_layer.commitChanges():
+                QgsMessageLog.logMessage("Error committing changes.", 'DesenAssist', Qgis.Critical)
         QgsProject.instance().write()
     
     
@@ -782,9 +785,7 @@ class DesenAssist:
         stalp_layer.commitChanges()
         QgsProject.instance().addMapLayer(stalp_layer)
 
-        if not stalp_layer or not nr_postale_layer:
-            print("One or both layers are not loaded.")
-        else:
+        if stalp_layer and nr_postale_layer:
             if 'MATCH_STATUS' not in [field.name() for field in stalp_layer.fields()]:
                 stalp_layer.dataProvider().addAttributes([QgsField('MATCH_STATUS', QVariant.String)])
                 stalp_layer.updateFields()
@@ -807,15 +808,9 @@ class DesenAssist:
                         feature['MATCH_STATUS'] = 'Da'
                     stalp_layer.updateFeature(feature)
 
-            if stalp_layer.commitChanges():
-                print("Comparison completed and layer updated.")
-            else:
-                print("Failed to commit changes. Please check for errors.")
-
         QgsProject.instance().write()
     
 #. H.	Verificarea coloanelor unde campurile sunt obligatorii - WORKING
-
     def verify_mandatory_columns(self):
         layers_to_check = {
             "STALP_JT": [
@@ -844,30 +839,9 @@ class DesenAssist:
 
         created_layers = {}
 
-        def create_scratch_layer(name, geom_type):
-            crs = "EPSG:3844"
-            if geom_type == "Point":
-                uri = f"Point?crs={crs}"
-            elif geom_type == "LineString":
-                uri = f"LineString?crs={crs}"
-            else:
-                uri = f"None?crs={crs}"
-
-            layer = QgsVectorLayer(uri, name, "memory")
-            provider = layer.dataProvider()
-
-            fields = QgsFields()
-            fields.append(QgsField("nume_layer", QVariant.String))  
-            fields.append(QgsField("coloane", QVariant.String))     
-            fields.append(QgsField("feature_id", QVariant.Int))
-            provider.addAttributes(fields)
-            layer.updateFields()
-            return layer
-
         for layer_name, columns in layers_to_check.items():
             layers = QgsProject.instance().mapLayersByName(layer_name.strip())
             if not layers:
-                print(f"Layer {layer_name} not found.")
                 continue
 
             layer = layers[0]
@@ -877,18 +851,25 @@ class DesenAssist:
             for feature in layer.getFeatures():
                 incomplete_columns = set()
                 for column in columns:
+                    if column == 'NR_CIR_FO':
+                        nr_cir_fo_val = feature['NR_CIR_FO']
+                        prop_fo_val = feature['PROP_FO']
+                        
+                        if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
+                            incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
+                            
                     if column not in [field.name() for field in layer.fields()]:
-                        print(f"Field {column} not found in layer {layer_name}.")
                         continue
                     value = feature[column]
-                    if value in ["", None, "NULL", "nan"]:
+                    if value in config.NULL_VALUES:
                         incomplete_columns.add(column)
+                        
 
+                    
                 if incomplete_columns:
                     if not scratch_layer:
-                        scratch_layer = create_scratch_layer(f"{layer_name}_coloane_necompletate", geom_type)
+                        scratch_layer = self.create_scratch_layer(f"{layer_name}_coloane_necompletate", geom_type)
                         created_layers[layer_name] = scratch_layer
-                        scratch_layer_data_provider = scratch_layer.dataProvider()
 
                     new_feature = QgsFeature(scratch_layer.fields())
                     new_feature.setAttributes([
@@ -900,16 +881,11 @@ class DesenAssist:
                         geometry = feature.geometry()
                         if geometry and geometry.isGeosValid():
                             new_feature.setGeometry(geometry)
-                        else:
-                            print(f"Feature ID {feature.id()} has invalid or missing geometry.")
-                    success = scratch_layer_data_provider.addFeature(new_feature)
-                    print(f"Feature ID {feature.id()} added to {layer_name}_coloane_necompletate: {success}")
+                            
+                    scratch_layer.dataProvider().addFeature(new_feature)
 
         for name, layer in created_layers.items():
             QgsProject.instance().addMapLayer(layer)
-            print(f"Added layer {name}_coloane_necompletate to project.")
-
-        print("Completed checking layers. Results added to corresponding scratch layers.")
 
 # I.	Verificare circuit gresit - WORKING
     def verify_circuit(self):
@@ -920,7 +896,6 @@ class DesenAssist:
         tronson_layer = QgsProject.instance().mapLayersByName(tronson_layer_name)
 
         if not tronson_layer:
-            print(f"Layer '{tronson_layer_name}' not found.")
             return
 
         tronson_layer = tronson_layer[0]
@@ -958,7 +933,115 @@ class DesenAssist:
 
         # Add the resulting layer to the project
         QgsProject.instance().addMapLayer(singlepart_layer)
-        print("Circuit verification complete. Resulting layer added to the project as 'Verified_Circuit'.")
+        
+    def verify_mistakes(self):
+        self.verify_num_columns()
+        self.verify_true_false_columns()
+        
+    # J.	Verificare numar coloane
+    def verify_num_columns(self):
+        layers_to_check = {
+            "STALP_JT": [
+                "UZURA_STP", "NR_CIR_FO", "NR_CIR_LTC", "NR_CIR_CATV", "NR_CONS_C2S", "NR_CONS_C4S", "NR_CONS_C2T", "NR_CONS_C4T", "NR_CONS_C2BR", "NR_CONS_C4BR"]
+        }
+
+        layer_types = {
+            "STALP_JT": "Point",
+        }
+
+        created_layers = {}
+
+        for layer_name, columns in layers_to_check.items():
+            layers = QgsProject.instance().mapLayersByName(layer_name.strip())
+            if not layers:
+                continue
+
+            layer = layers[0]
+            geom_type = layer_types[layer_name]
+
+            scratch_layer = None
+            for feature in layer.getFeatures():
+                incorrect_column = set()
+                for column in columns:
+                    if column not in [field.name() for field in layer.fields()]:
+                        continue
+                    value = feature[column]
+                    if value not in config.NULL_VALUES:
+                        try:
+                            value = int(str(value))
+                        except ValueError:
+                            incorrect_column.add(column)
+
+                if incorrect_column:
+                    if not scratch_layer:
+                        scratch_layer = self.create_scratch_layer(f"{layer_name}_coloane_gresite_nr", geom_type)
+                        created_layers[layer_name] = scratch_layer
+
+                    new_feature = QgsFeature(scratch_layer.fields())
+                    new_feature.setAttributes([
+                        layer_name,                         
+                        ", ".join(incorrect_column),     
+                        feature.id()                            
+                    ])
+                    if geom_type != "None":
+                        geometry = feature.geometry()
+                        if geometry and geometry.isGeosValid():
+                            new_feature.setGeometry(geometry)
+                            
+                    scratch_layer.dataProvider().addFeature(new_feature)
+        for _, layer in created_layers.items():
+            QgsProject.instance().addMapLayer(layer)
+            
+    def verify_true_false_columns(self):
+        columns_to_check = {
+            "NR_CIR_FO": "FIB_OPT",
+            "NR_CIR_LTC": "LTC",
+            "NR_CIR_CATV": "CATV",
+        }
+
+        created_layers = {}
+
+        layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+
+        scratch_layer = None
+        for feature in layer.getFeatures():
+            incorrect_columns = set()
+            for key_field, bool_field in columns_to_check.items():
+                if key_field not in [field.name() for field in layer.fields()] or bool_field not in [field.name() for field in layer.fields()]:
+                    continue  # Skip if the key field or bool field is not present
+
+                key_value = feature[key_field]  # Get the value of the key field
+                bool_value = feature[bool_field]  # Get the value of the bool field
+
+                # Check if key_value is completed (not null or empty)
+                is_completed = key_value not in config.NULL_VALUES
+
+                # Ensure the boolean value matches the expected logic
+                if is_completed and bool_value.lower() not in [1, 'true', 'yes', 'da']:
+                    QgsMessageLog.logMessage(f"Coloanele booleane sunt completate greșit: {key_field} is completed but... {bool_field} with {bool_value}", 'DesenAssist', Qgis.Critical)
+                    incorrect_columns.add(bool_field)  # Expected "true" but got something else
+                elif not is_completed and bool_value.lower() not in [0, 'false', 'no', 'nu']:
+                    QgsMessageLog.logMessage(f"Coloanele booleane sunt completate greșit: {key_field} is not completed but... {bool_field} with {bool_value}", 'DesenAssist', Qgis.Critical)
+                    incorrect_columns.add(bool_field)  # Expected "false" but got something else
+
+            if incorrect_columns:
+                if not scratch_layer:
+                    scratch_layer = self.create_scratch_layer(f"STALP_JT_coloane_gresite_bool", "Point")
+                    created_layers["STALP_JT"] = scratch_layer
+
+                new_feature = QgsFeature(scratch_layer.fields())
+                new_feature.setAttributes([
+                    "STALP_JT",                         
+                    ", ".join(incorrect_columns),     
+                    feature.id()                            
+                ])
+                geometry = feature.geometry()
+                if geometry and geometry.isGeosValid():
+                    new_feature.setGeometry(geometry)
+                    
+                scratch_layer.dataProvider().addFeature(new_feature)
+        for _, layer in created_layers.items():
+            QgsProject.instance().addMapLayer(layer)
         
 # Process Layers
     def process_layers(self, layers):
@@ -982,3 +1065,23 @@ class DesenAssist:
                 return
         else:
             return
+        
+    def create_scratch_layer(self, name, geom_type):
+        crs = "EPSG:3844"
+        if geom_type == "Point":
+            uri = f"Point?crs={crs}"
+        elif geom_type == "LineString":
+            uri = f"LineString?crs={crs}"
+        else:
+            uri = f"None?crs={crs}"
+
+        layer = QgsVectorLayer(uri, name, "memory")
+        provider = layer.dataProvider()
+
+        fields = QgsFields()
+        fields.append(QgsField("nume_layer", QVariant.String))  
+        fields.append(QgsField("coloane", QVariant.String))     
+        fields.append(QgsField("feature_id", QVariant.Int))
+        provider.addAttributes(fields)
+        layer.updateFields()
+        return layer

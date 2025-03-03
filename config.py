@@ -1,0 +1,1 @@
+NULL_VALUES = ["NULL", "None", None, "nan", ""]
