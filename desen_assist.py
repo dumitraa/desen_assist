@@ -540,8 +540,6 @@ class DesenAssist:
         except Exception as e:
             QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
 
-
-
 # C.	Coloana “linie jt” sa fie la fel la bransament si la tronson - WORKING
 
     def verify_linia_jt_matches(self):
@@ -855,10 +853,7 @@ class DesenAssist:
                     prop_fo_val = feature['PROP_FO']
                     
                     if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
-                        QgsMessageLog.logMessage(f"Feature {feature.id()} has NR_CIR_FO but PROP_FO is empty.", 'DesenAssist', Qgis.Warning)
                         incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
-                    else:
-                        QgsMessageLog.logMessage(f"Feature {feature.id()} has NR_CIR_FO and PROP_FO.", 'DesenAssist', Qgis.Info)
                                 
                     for column in columns:
                         if column not in [field.name() for field in layer.fields()]:
