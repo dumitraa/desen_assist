@@ -1,7 +1,7 @@
 Plugin Builder Results
 
 Your plugin DesenAssist was created in:
-    C:/Users/USER/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins\enel_assist
+    C:/Users/USER/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins\desen_assist
 
 Your QGIS plugin directory is located at:
     C:/Users/USER/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
@@ -17,7 +17,7 @@ What's Next:
 
   * Test the plugin by enabling it in the QGIS plugin manager
 
-  * Customize it by editing the implementation file: ``enel_assist.py``
+  * Customize it by editing the implementation file: ``desen_assist.py``
 
   * Create your own custom icon, replacing the default icon.png
 
