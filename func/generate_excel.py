@@ -73,7 +73,7 @@ class GenerateExcelDialog(QDialog):
             layer_streets = set()
             for layer in layers.values():
                 for feature in layer.getFeatures():
-                    street_name = feature["STR"].strip()
+                    street_name = str(feature["STR"]).strip()
                     if street_name:
                         layer_streets.add(street_name)
             
@@ -152,7 +152,7 @@ class GenerateExcelDialog(QDialog):
             ]
 
             for col_idx, (header, cell_value) in enumerate(zip(headers, row_data), start=1):
-                if header.strip() in existing_headers:
+                if str(header).strip() in existing_headers:
                     cell = sheet.cell(row=row_idx, column=existing_headers[header], value=cell_value if cell_value is not None else "")
                     cell.number_format = "@"
 
