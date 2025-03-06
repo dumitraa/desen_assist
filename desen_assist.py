@@ -549,7 +549,6 @@ class DesenAssist:
 
 
 
-
 # A.	Verificare numerotare stalpi
     def verify_pole_numbering(self):
         self.verify_pole_numbering_br()

@@ -5,6 +5,7 @@ from qgis.core import QgsProject, QgsMessageLog, Qgis # type: ignore
 import pandas as pd
 from openpyxl import load_workbook
 import os
+from .. import config
 
 
 class GenerateExcelDialog(QDialog):
@@ -142,13 +143,13 @@ class GenerateExcelDialog(QDialog):
             row_data = [
                 str(i),  # Ensure number column remains text
                 str(street),
-                str(city_row.iloc[0]['REGION']),
-                str(city_row.iloc[0]['REGPOLIT']).zfill(8),
-                str(city_row.iloc[0]['CITY_NAME']),
-                str(city_row.iloc[0]['CITY_CODE']).zfill(12),  # Ensure codes stay as text
-                str(city_row.iloc[0]['MN_CITY_CODE']).zfill(12),
-                str(city_row.iloc[0]['CITY_CD_PS']).zfill(12),
-                str(city_row.iloc[0]['MN_CITY_CD_PS']).zfill(12)
+                str(city_row.iloc[0]['REGION']) if city_row.iloc[0]['REGION'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['REGPOLIT']).zfill(8) if city_row.iloc[0]['REGPOLIT'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['CITY_NAME']) if city_row.iloc[0]['CITY_NAME'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['CITY_CODE']).zfill(12) if city_row.iloc[0]['CITY_CODE'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['MN_CITY_CODE']).zfill(12) if city_row.iloc[0]['MN_CITY_CODE'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['CITY_CD_PS']).zfill(12) if city_row.iloc[0]['CITY_CD_PS'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['MN_CITY_CD_PS']).zfill(12) if city_row.iloc[0]['MN_CITY_CD_PS'] not in config.NULL_VALUES else ""
             ]
 
             for col_idx, (header, cell_value) in enumerate(zip(headers, row_data), start=1):
