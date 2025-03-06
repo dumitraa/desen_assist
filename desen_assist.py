@@ -38,7 +38,8 @@ from qgis.core import ( # type: ignore
     QgsFeatureRequest,
     QgsVectorFileWriter,
     QgsWkbTypes,
-    Qgis
+    Qgis,
+    QgsSpatialIndex
     )
 import os
 from pathlib import Path
@@ -192,7 +193,7 @@ class DesenAssist:
             self.add_action(
                 "Separare posturi dupa ID_BDI",
                 text=self.tr(u'Separare posturi dupa ID_BDI'),
-                callback=self.separate_poles_by_id,
+                callback=self.prepare_and_separate,
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/separate.png')),
                 enabled_flag=False
@@ -290,6 +291,15 @@ class DesenAssist:
         del self.toolbar
         
     def set_base_dir(self):
+        project = QgsProject.instance()
+        self.layers = {
+            "BRANS_FIRI_GRPM_JT": project.mapLayersByName("BRANS_FIRI_GRPM_JT")[0],
+            "FB pe C LES": project.mapLayersByName("FB pe C LES")[0],
+            "TRONSON_JT": project.mapLayersByName("TRONSON_JT")[0],
+            "STALP_JT": project.mapLayersByName("STALP_JT")[0],
+            "LINIE_JT": project.mapLayersByName("LINIE_JT")[0]
+        }
+                
         """Set base directory and update icons."""
         base_dir = QFileDialog.getExistingDirectory(None, "Select Base Directory", "")
         if base_dir:
@@ -381,10 +391,81 @@ class DesenAssist:
         layer.updateFields()
         return layer
 
-    def separate_poles_by_id(self):
+    def prepare_and_separate(self):
+        success = self.assign_id_bdis(self.layers)
+        
+        if success:
+            self.separate_poles_by_id(self.layers)
+        else:
+            QMessageBox.warning(None, "Eroare", "Eroare la asignarea ID_BDI")
+    
+    def assign_id_bdis(self, layers):
         """
-        Separates poles by user-input ID_BDI, filters matching features,
-        saves them into new layers with the same schema, and exports them as individual .gpkg files.
+        Completes ID_BDI for BRANS_FIRI_GRPM_JT, FB_pe_C_LES, TRONSON_JT by mapping from their LINIE_JT - which corresponds to DENUM from layer LINIA_JT (which also has ID_BDI)
+        Completes ID_BDI for STALP_JT by getting the intersected TRONSON_JT's ID_BDI. If multiple intersecting TRONSON_JT features have different ID_BDI values, assign the most frequent one.
+        If no intersection is found in TRONSON_JT, checks for intersections in BRANS_FIRI_GRPM_JT.
+        """
+        
+        # Create dictionary for LINIE_JT mapping (DENUM -> ID_BDI)
+        linia_jt_layer = layers["LINIE_JT"]
+        linia_jt_mapping = {feat["DENUM"]: feat["ID_BDI"] for feat in linia_jt_layer.getFeatures()}
+        
+        # Update ID_BDI for BRANS_FIRI_GRPM_JT, FB pe C LES, TRONSON_JT based on LINIA_JT
+        for layer_name in ["BRANS_FIRI_GRPM_JT", "FB pe C LES", "TRONSON_JT"]:
+            layer = layers[layer_name]
+            layer.startEditing()
+            for feature in layer.getFeatures():
+                linia_denum = feature["LINIA_JT"]
+                if linia_denum in linia_jt_mapping:
+                    feature["ID_BDI"] = linia_jt_mapping[linia_denum]
+                    layer.updateFeature(feature)
+            layer.commitChanges()
+        
+        # Spatially join ID_BDI from TRONSON_JT to STALP_JT
+        tronson_jt_layer = layers["TRONSON_JT"]
+        bransament_jt_layer = layers["BRANS_FIRI_GRPM_JT"]
+        stalp_jt_layer = layers["STALP_JT"]
+        
+        spatial_index_tr = QgsSpatialIndex(tronson_jt_layer.getFeatures())
+        spatial_index_br = QgsSpatialIndex(bransament_jt_layer.getFeatures())
+        
+        stalp_jt_layer.startEditing()
+        for stalp in stalp_jt_layer.getFeatures():
+            intersecting_ids_tr = spatial_index_tr.intersects(stalp.geometry().boundingBox())
+            
+            id_bdi_value = None  # Store found ID_BDI
+            
+            # First, try to get ID_BDI from intersecting TRONSON_JT
+            if intersecting_ids_tr:
+                for tronson in tronson_jt_layer.getFeatures(QgsFeatureRequest().setFilterFids(intersecting_ids_tr)):
+                    if stalp.geometry().intersects(tronson.geometry()):
+                        id_bdi_value = tronson["ID_BDI"]
+                        if id_bdi_value:  # If found, no need to check further
+                            break
+            
+            # If no ID_BDI found in TRONSON_JT, check BRANS_FIRI_GRPM_JT
+            if not id_bdi_value:
+                intersecting_ids_br = spatial_index_br.intersects(stalp.geometry().boundingBox())
+                
+                if intersecting_ids_br:
+                    for bransament in bransament_jt_layer.getFeatures(QgsFeatureRequest().setFilterFids(intersecting_ids_br)):
+                        if stalp.geometry().intersects(bransament.geometry()):
+                            id_bdi_value = bransament["ID_BDI"]
+                            if id_bdi_value:
+                                break  # Stop as soon as one is found
+            
+            # Assign the found ID_BDI to the STALP_JT feature
+            if id_bdi_value:
+                stalp["ID_BDI"] = id_bdi_value
+                stalp_jt_layer.updateFeature(stalp)
+
+        stalp_jt_layer.commitChanges()
+        return True
+
+
+    def separate_poles_by_id(self, layers):
+        """
+        Filters all layers based on user-input ID_BDI values and exports them into single .gpkg files per layer type.
         """
         # Get ID_BDI from user
         id_bdis, ok = QInputDialog.getText(None, "Input ID_BDI", "ID_BDI:")
@@ -392,86 +473,81 @@ class DesenAssist:
             QMessageBox.warning(None, "Input Error", "ID_BDI nu a fost introdus.")
             return
         
+        # Convert input IDs to a list
+        id_bdi_list = [id_bdi.strip() for id_bdi in id_bdis.split(",") if id_bdi.strip()]
+        
         # Access the layers
-        linie_jt_layer = QgsProject.instance().mapLayersByName("LINIE_JT")[0]
-        stalp_jt_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
-        brans_layer = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
-        fb_les_layer = QgsProject.instance().mapLayersByName("FB pe C LES")[0]
-        tronson_layer = QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
+        linie_jt_layer = layers["LINIE_JT"]
+        stalp_jt_layer = layers["STALP_JT"]
+        brans_layer = layers["BRANS_FIRI_GRPM_JT"]
+        fb_les_layer = layers["FB pe C LES"]
+        tronson_layer = layers["TRONSON_JT"]
+        
+        # Define layers to filter
+        layers_to_filter = {
+            "LINIE_JT": linie_jt_layer,
+            "STALP_JT": stalp_jt_layer,
+            "BRANS_FIRI_GRPM_JT": brans_layer,
+            "FB pe C LES": fb_les_layer,
+            "TRONSON_JT": tronson_layer
+        }
+        
+        base_dir = self.base_dir
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
+        
+        # Create a new group in QGIS
+        root = QgsProject.instance().layerTreeRoot()
+        new_group = root.addGroup(f"Date_Filtrate_{'_'.join(id_bdi_list)}")
         
         missing_id_bdis = []
         
-        for id_bdi in id_bdis.split(","):
-            # Find LINIA_JT value corresponding to ID_BDI in LINIE_JT
-            linia_jt_value = None
+        for id_bdi in id_bdi_list:
+            found = False
             for feature in linie_jt_layer.getFeatures():
-                if str(feature["ID_BDI"]) == str(id_bdi):
-                    linia_jt_value = feature["DENUM"]
+                if str(feature["ID_BDI"]) == id_bdi:
+                    found = True
                     break
-            
-            if linia_jt_value is None:
+            if not found:
                 missing_id_bdis.append(id_bdi)
-                continue
+        
+        for layer_name, original_layer in layers_to_filter.items():
+            # Retrieve geometry type and CRS
+            geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
+            crs = original_layer.crs().authid()
             
-            # Create a new group in QGIS
-            root = QgsProject.instance().layerTreeRoot()
-            new_group = root.addGroup(f"Date_Filtrate_{id_bdi}")
+            # Create a new in-memory layer
+            new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
+            new_layer_data = new_layer.dataProvider()
+            new_layer_data.addAttributes(original_layer.fields())
+            new_layer.updateFields()
             
-            # Define layers to filter
-            layers_to_filter = {
-                "LINIE_JT": {"layer": linie_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
-                "STALP_JT": {"layer": stalp_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
-                "BRANS_FIRI_GRPM_JT": {"layer": brans_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
-                "FB pe C LES": {"layer": fb_les_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
-                "TRONSON_JT": {"layer": tronson_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value}
-            }
+            # Collect all matching features
+            matching_features = []
+            for feature in original_layer.getFeatures():
+                if str(feature["ID_BDI"]) in id_bdi_list:
+                    matching_features.append(QgsFeature(feature))
             
-            # Output directory
-            base_dir = self.base_dir
-            if not os.path.exists(base_dir):
-                os.makedirs(base_dir)
+            # Add filtered features to new layer (even if empty)
+            new_layer_data.addFeatures(matching_features)
+            new_layer.updateExtents()
             
-            for layer_name, data in layers_to_filter.items():
-                original_layer = data["layer"]
-                filter_field = data["filter_field"]
-                filter_value = data["filter_value"]
-
-                # Retrieve the geometry type and CRS from the original layer
-                geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
-                crs = original_layer.crs().authid()
-
-                # Create a new in-memory layer with the same geometry type and CRS
-                new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
-
-                # Add the same fields (attributes) to the new layer
-                new_layer_data = new_layer.dataProvider()
-                new_layer_data.addAttributes(original_layer.fields())
-                new_layer.updateFields()
-                
-                # Copy only matching features
-                matching_features = []
-                for feature in original_layer.getFeatures(QgsFeatureRequest().setFilterExpression(f'"{filter_field}" = \'{filter_value}\'')):
-                    new_feature = QgsFeature(feature)
-                    matching_features.append(new_feature)
-                
-                new_layer.dataProvider().addFeatures(matching_features)
-                new_layer.updateExtents()
-                
-                output_path = os.path.join(base_dir, f"{id_bdi}", f"{layer_name}.gpkg")
-                subdir = os.path.dirname(output_path)
-                os.makedirs(subdir, exist_ok=True)
-                
-                QgsVectorFileWriter.writeAsVectorFormat(
-                    new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
-                )
-                
-                # Add to QGIS
-                QgsProject.instance().addMapLayer(new_layer, False)
-                new_group.addLayer(new_layer)
+            # Export to GeoPackage
+            output_path = os.path.join(base_dir, f"{layer_name}.gpkg")
+            QgsVectorFileWriter.writeAsVectorFormat(
+                new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
+            )
+            
+            # Add to QGIS and group
+            QgsProject.instance().addMapLayer(new_layer, False)
+            new_group.addLayer(new_layer)
         
         QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes")
-        if len(missing_id_bdis) > 0:
-            QMessageBox.warning(None, "ID_BDI lipsă", f"ID_BDI lipsă: {', '.join(missing_id_bdis)}")
+        
+        if missing_id_bdis:
+            QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
+
+
 
 
 # A.	Verificare numerotare stalpi
