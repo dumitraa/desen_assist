@@ -25,7 +25,7 @@
 from PyQt5.QtCore import QVariant # type: ignore
 from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator # type: ignore
 from qgis.PyQt.QtGui import QIcon # type: ignore
-from qgis.PyQt.QtWidgets import QFileDialog, QAction, QMessageBox # type: ignore
+from qgis.PyQt.QtWidgets import QFileDialog, QInputDialog,  QAction, QMessageBox # type: ignore
 from qgis.core import ( # type: ignore
     QgsFeature,
     QgsField,
@@ -35,8 +35,12 @@ from qgis.core import ( # type: ignore
     QgsProject,
     QgsVectorLayer,
     QgsProcessingFeedback,
+    QgsFeatureRequest,
+    QgsVectorFileWriter,
+    QgsWkbTypes,
     Qgis
     )
+import os
 from pathlib import Path
 import processing # type: ignore
 import re
@@ -178,6 +182,22 @@ class DesenAssist:
                 
         self.actions_to_enable = [
             self.add_action(
+                "Verificare strazi si generare excel",
+                text=self.tr(u'Verificare strazi si generare excel'),
+                callback=self.verify_streets,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/excel.png')),
+                enabled_flag=False
+            ),
+            self.add_action(
+                "Separare posturi dupa ID_BDI",
+                text=self.tr(u'Separare posturi dupa ID_BDI'),
+                callback=self.separate_poles_by_id,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/separate.png')),
+                enabled_flag=False
+            ),
+            self.add_action(
                 "Verificare numerotare stâlpi",
                 text=self.tr(u'Verificare numerotare stâlpi'),
                 callback=self.verify_pole_numbering,
@@ -255,14 +275,6 @@ class DesenAssist:
                 callback=self.verify_mistakes,
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/10.png')),
-            ),
-            self.add_action(
-                "Verificare strazi si generare excel",
-                text=self.tr(u'Verificare strazi si generare excel'),
-                callback=self.verify_streets,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/excel.png')),
-                enabled_flag=False
             )
         ]
         
@@ -368,6 +380,93 @@ class DesenAssist:
         provider.addAttributes(fields)
         layer.updateFields()
         return layer
+
+    def separate_poles_by_id(self):
+        """
+        Separates poles by user-input ID_BDI, filters matching features,
+        saves them into new layers with the same schema, and exports them as individual .gpkg files.
+        """
+        # Get ID_BDI from user
+        id_bdi, ok = QInputDialog.getText(None, "Input ID_BDI", "ID_BDI:")
+        if not ok or not id_bdi:
+            QMessageBox.warning(None, "Input Error", "ID_BDI nu a fost introdus.")
+            return
+        
+        # Access the layers
+        linie_jt_layer = QgsProject.instance().mapLayersByName("LINIE_JT")[0]
+        stalp_jt_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        brans_layer = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
+        fb_les_layer = QgsProject.instance().mapLayersByName("FB pe C LES")[0]
+        tronson_layer = QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
+        
+        # Find LINIA_JT value corresponding to ID_BDI in LINIE_JT
+        linia_jt_value = None
+        for feature in linie_jt_layer.getFeatures():
+            if str(feature["ID_BDI"]) == str(id_bdi):
+                linia_jt_value = feature["DENUM"]
+                break
+        
+        if linia_jt_value is None:
+            QMessageBox.warning(None, "Error", "ID_BDI not found in LINIE_JT.")
+            return
+        
+        # Create a new group in QGIS
+        root = QgsProject.instance().layerTreeRoot()
+        new_group = root.addGroup(f"Date_Filtrate_{id_bdi}")
+        
+        # Define layers to filter
+        layers_to_filter = {
+            "STALP_JT": {"layer": stalp_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
+            "BRANS_FIRI_GRPM_JT": {"layer": brans_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
+            "FB pe C LES": {"layer": fb_les_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
+            "TRONSON_JT": {"layer": tronson_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value}
+        }
+        
+        # Output directory
+        base_dir = self.base_dir
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
+        
+        for layer_name, data in layers_to_filter.items():
+            original_layer = data["layer"]
+            filter_field = data["filter_field"]
+            filter_value = data["filter_value"]
+
+            # Retrieve the geometry type and CRS from the original layer
+            geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
+            crs = original_layer.crs().authid()
+
+            # Create a new in-memory layer with the same geometry type and CRS
+            new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
+
+            # Add the same fields (attributes) to the new layer
+            new_layer_data = new_layer.dataProvider()
+            new_layer_data.addAttributes(original_layer.fields())
+            new_layer.updateFields()
+            
+            # Copy only matching features
+            matching_features = []
+            for feature in original_layer.getFeatures(QgsFeatureRequest().setFilterExpression(f'"{filter_field}" = \'{filter_value}\'')):
+                new_feature = QgsFeature(feature)
+                matching_features.append(new_feature)
+            
+            new_layer.dataProvider().addFeatures(matching_features)
+            new_layer.updateExtents()
+            
+            output_path = os.path.join(base_dir, f"{id_bdi}", f"{layer_name}.gpkg")
+            subdir = os.path.dirname(output_path)
+            os.makedirs(subdir, exist_ok=True)
+            
+            QgsVectorFileWriter.writeAsVectorFormat(
+                new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
+            )
+            
+            # Add to QGIS
+            QgsProject.instance().addMapLayer(new_layer, False)
+            new_group.addLayer(new_layer)
+        
+        QMessageBox.information(None, "Success", "Filtered layers have been created and saved as .gpkg files.")
+
 
 # A.	Verificare numerotare stalpi
     def verify_pole_numbering(self):
