@@ -387,8 +387,8 @@ class DesenAssist:
         saves them into new layers with the same schema, and exports them as individual .gpkg files.
         """
         # Get ID_BDI from user
-        id_bdi, ok = QInputDialog.getText(None, "Input ID_BDI", "ID_BDI:")
-        if not ok or not id_bdi:
+        id_bdis, ok = QInputDialog.getText(None, "Input ID_BDI", "ID_BDI:")
+        if not ok or not id_bdis:
             QMessageBox.warning(None, "Input Error", "ID_BDI nu a fost introdus.")
             return
         
@@ -399,74 +399,79 @@ class DesenAssist:
         fb_les_layer = QgsProject.instance().mapLayersByName("FB pe C LES")[0]
         tronson_layer = QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
         
-        # Find LINIA_JT value corresponding to ID_BDI in LINIE_JT
-        linia_jt_value = None
-        for feature in linie_jt_layer.getFeatures():
-            if str(feature["ID_BDI"]) == str(id_bdi):
-                linia_jt_value = feature["DENUM"]
-                break
+        missing_id_bdis = []
         
-        if linia_jt_value is None:
-            QMessageBox.warning(None, "Eroare", "ID_BDI nu a fost gasit in LINIE_JT.")
-            return
-        
-        # Create a new group in QGIS
-        root = QgsProject.instance().layerTreeRoot()
-        new_group = root.addGroup(f"Date_Filtrate_{id_bdi}")
-        
-        # Define layers to filter
-        layers_to_filter = {
-            "LINIE_JT": {"layer": linie_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
-            "STALP_JT": {"layer": stalp_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
-            "BRANS_FIRI_GRPM_JT": {"layer": brans_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
-            "FB pe C LES": {"layer": fb_les_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
-            "TRONSON_JT": {"layer": tronson_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value}
-        }
-        
-        # Output directory
-        base_dir = self.base_dir
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
-        
-        for layer_name, data in layers_to_filter.items():
-            original_layer = data["layer"]
-            filter_field = data["filter_field"]
-            filter_value = data["filter_value"]
+        for id_bdi in id_bdis.split(","):
+            # Find LINIA_JT value corresponding to ID_BDI in LINIE_JT
+            linia_jt_value = None
+            for feature in linie_jt_layer.getFeatures():
+                if str(feature["ID_BDI"]) == str(id_bdi):
+                    linia_jt_value = feature["DENUM"]
+                    break
+            
+            if linia_jt_value is None:
+                missing_id_bdis.append(id_bdi)
+                continue
+            
+            # Create a new group in QGIS
+            root = QgsProject.instance().layerTreeRoot()
+            new_group = root.addGroup(f"Date_Filtrate_{id_bdi}")
+            
+            # Define layers to filter
+            layers_to_filter = {
+                "LINIE_JT": {"layer": linie_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
+                "STALP_JT": {"layer": stalp_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
+                "BRANS_FIRI_GRPM_JT": {"layer": brans_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
+                "FB pe C LES": {"layer": fb_les_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
+                "TRONSON_JT": {"layer": tronson_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value}
+            }
+            
+            # Output directory
+            base_dir = self.base_dir
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir)
+            
+            for layer_name, data in layers_to_filter.items():
+                original_layer = data["layer"]
+                filter_field = data["filter_field"]
+                filter_value = data["filter_value"]
 
-            # Retrieve the geometry type and CRS from the original layer
-            geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
-            crs = original_layer.crs().authid()
+                # Retrieve the geometry type and CRS from the original layer
+                geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
+                crs = original_layer.crs().authid()
 
-            # Create a new in-memory layer with the same geometry type and CRS
-            new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
+                # Create a new in-memory layer with the same geometry type and CRS
+                new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
 
-            # Add the same fields (attributes) to the new layer
-            new_layer_data = new_layer.dataProvider()
-            new_layer_data.addAttributes(original_layer.fields())
-            new_layer.updateFields()
-            
-            # Copy only matching features
-            matching_features = []
-            for feature in original_layer.getFeatures(QgsFeatureRequest().setFilterExpression(f'"{filter_field}" = \'{filter_value}\'')):
-                new_feature = QgsFeature(feature)
-                matching_features.append(new_feature)
-            
-            new_layer.dataProvider().addFeatures(matching_features)
-            new_layer.updateExtents()
-            
-            output_path = os.path.join(base_dir, f"{id_bdi}", f"{layer_name}.gpkg")
-            subdir = os.path.dirname(output_path)
-            os.makedirs(subdir, exist_ok=True)
-            
-            QgsVectorFileWriter.writeAsVectorFormat(
-                new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
-            )
-            
-            # Add to QGIS
-            QgsProject.instance().addMapLayer(new_layer, False)
-            new_group.addLayer(new_layer)
+                # Add the same fields (attributes) to the new layer
+                new_layer_data = new_layer.dataProvider()
+                new_layer_data.addAttributes(original_layer.fields())
+                new_layer.updateFields()
+                
+                # Copy only matching features
+                matching_features = []
+                for feature in original_layer.getFeatures(QgsFeatureRequest().setFilterExpression(f'"{filter_field}" = \'{filter_value}\'')):
+                    new_feature = QgsFeature(feature)
+                    matching_features.append(new_feature)
+                
+                new_layer.dataProvider().addFeatures(matching_features)
+                new_layer.updateExtents()
+                
+                output_path = os.path.join(base_dir, f"{id_bdi}", f"{layer_name}.gpkg")
+                subdir = os.path.dirname(output_path)
+                os.makedirs(subdir, exist_ok=True)
+                
+                QgsVectorFileWriter.writeAsVectorFormat(
+                    new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
+                )
+                
+                # Add to QGIS
+                QgsProject.instance().addMapLayer(new_layer, False)
+                new_group.addLayer(new_layer)
         
-        QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes.")
+        QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes")
+        if len(missing_id_bdis) > 0:
+            QMessageBox.warning(None, "ID_BDI lipsă", f"ID_BDI lipsă: {', '.join(missing_id_bdis)}")
 
 
 # A.	Verificare numerotare stalpi
