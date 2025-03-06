@@ -407,7 +407,7 @@ class DesenAssist:
                 break
         
         if linia_jt_value is None:
-            QMessageBox.warning(None, "Error", "ID_BDI not found in LINIE_JT.")
+            QMessageBox.warning(None, "Eroare", "ID_BDI nu a fost gasit in LINIE_JT.")
             return
         
         # Create a new group in QGIS
@@ -416,6 +416,7 @@ class DesenAssist:
         
         # Define layers to filter
         layers_to_filter = {
+            "LINIE_JT": {"layer": linie_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
             "STALP_JT": {"layer": stalp_jt_layer, "filter_field": "ID_BDI", "filter_value": id_bdi},
             "BRANS_FIRI_GRPM_JT": {"layer": brans_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
             "FB pe C LES": {"layer": fb_les_layer, "filter_field": "LINIA_JT", "filter_value": linia_jt_value},
@@ -465,7 +466,7 @@ class DesenAssist:
             QgsProject.instance().addMapLayer(new_layer, False)
             new_group.addLayer(new_layer)
         
-        QMessageBox.information(None, "Success", "Filtered layers have been created and saved as .gpkg files.")
+        QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes.")
 
 
 # A.	Verificare numerotare stalpi
