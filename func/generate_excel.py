@@ -16,7 +16,7 @@ class GenerateExcelDialog(QDialog):
         self.layout = QVBoxLayout()
 
         # Add input for locality
-        self.locality_label = QLabel("Codul localitatii (CITY_CODE):")
+        self.locality_label = QLabel("Cod_Localitate:")
         self.layout.addWidget(self.locality_label)
         
         self.locality_input = QLineEdit(self)
@@ -60,26 +60,33 @@ class GenerateExcelDialog(QDialog):
                 self.show_message("Introdu o localitate!", error=True)
                 return
             
+            COD_LOC = 'COD_LOC'
+            STR = 'NUME_STR'
+            TIP_STR = 'TIP_STR'
+            
+            
             self.progress_bar.setValue(50)
-            localitati_df = nomenclator.parse('localitati', dtype=str)
-            QgsMessageLog.logMessage(f"Localitati: {localitati_df["CITY_CODE"]}", "DesenAssist", level=Qgis.Info)
-            city_row = localitati_df[localitati_df['CITY_CODE'] == locality]
+            df = nomenclator.parse('Sheet1', dtype=str)
+            QgsMessageLog.logMessage(f"Localitati: {df[COD_LOC]}", "DesenAssist", level=Qgis.Info)
+            city_row = df[df[COD_LOC] == locality]
             if city_row.empty:
                 raise ValueError(f"Localitatea {locality} nu a fost gasita in nomenclator!")
-            city_code = city_row.iloc[0]['CITY_CODE']
+            city_code = city_row.iloc[0][COD_LOC]
             
-            strazi_df = nomenclator.parse('strazi', dtype=str)
-            known_streets = set(strazi_df[strazi_df['CITY_CODE'] == city_code]['STREET'])
+            known_streets = set(zip(df[df[COD_LOC] == city_code][STR], df[df[COD_LOC] == city_code][TIP_STR]))
+
             
             layer_streets = set()
             for layer in layers.values():
                 for feature in layer.getFeatures():
-                    street_name = str(feature["STR"]).strip()
-                    if street_name:
-                        layer_streets.add(street_name)
+                    street_name = str(feature["STR"])
+                    street_type = str(feature["TIP_STR"])
+                    if street_name and street_type:
+                        layer_streets.add((street_name, street_type))
             
             self.progress_bar.setValue(70)
             missing_streets = sorted(layer_streets - known_streets)
+            QgsMessageLog.logMessage(f"Missing streets: {missing_streets}", "DesenAssist", level=Qgis.Info)
             
             if missing_streets:
                 self.write_missing_streets_to_excel(missing_streets, city_row)
@@ -109,7 +116,7 @@ class GenerateExcelDialog(QDialog):
 
     
     def write_missing_streets_to_excel(self, missing_streets, city_row):
-        new_file_name = f"Tabel_completare strazi in nomenclatorul de adrese(1).xlsx"
+        new_file_name = f"Tabel_completare strazi in nomenclatorul de adrese.xlsx"
         output_file = self.create_valid_output(self.base_dir, new_file_name)
         template_path = self.plugin_path('templates', 'to_complete.xlsx')
 
@@ -122,14 +129,13 @@ class GenerateExcelDialog(QDialog):
 
         try:
             workbook = load_workbook(output_file)
-            sheet = workbook["tab_sol.completare_strazi "]
+            sheet = workbook["Sheet1"]
         except Exception as e:
             QgsMessageLog.logMessage(f"Error loading workbook: {e}", "DesenAssist", level=Qgis.Critical)
             return
 
-        start_row = sheet.max_row + 1
-        header_row = sheet.max_row
-        QgsMessageLog.logMessage(f"Start row: {start_row}\n Header row: {header_row}", "DesenAssist", level=Qgis.Info)
+        start_row = 2
+        header_row = 1
         
         existing_headers = {sheet.cell(row=header_row, column=col_idx).value: col_idx for col_idx in range(1, sheet.max_column + 1) if sheet.cell(row=header_row, column=col_idx).value}
 
@@ -137,19 +143,20 @@ class GenerateExcelDialog(QDialog):
             QgsMessageLog.logMessage("No headers found in template!", "DesenAssist", level=Qgis.Critical)
             return
 
-        headers = ["Nr.crt.", "STREET", "REGION", "REGPOLIT", "CITY_NAME", "CITY_CODE", "MN_CITY_CODE", "CITY_CD_PS", "MN_CITY_CD_PS"]
+        headers = ["Judet", "Cod_Comuna(UAT)", "Nume_Comuna(UAT)", "Cod_Localitate", "Nume_Localitate", "Nume Strada", "Tip / STRTYPEAB", "CP / POST_CODE", "GrpStrReg / REGIOGROUP", "REGPOLIT"]
 
-        for row_idx, (i, street) in enumerate(enumerate(missing_streets, start=1), start=start_row):
+        for row_idx, (street, tip_strada) in enumerate(missing_streets, start=start_row):
             row_data = [
-                str(i),  # Ensure number column remains text
+                str(city_row.iloc[0]['JUDET']) if city_row.iloc[0]['JUDET'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['COD_UAT']) if city_row.iloc[0]['COD_UAT'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['NUME_UAT']) if city_row.iloc[0]['NUME_UAT'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['COD_LOC']) if city_row.iloc[0]['COD_LOC'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['NUME_LOC']) if city_row.iloc[0]['NUME_LOC'] not in config.NULL_VALUES else "",
                 str(street),
-                str(city_row.iloc[0]['REGION']) if city_row.iloc[0]['REGION'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['REGPOLIT']).zfill(8) if city_row.iloc[0]['REGPOLIT'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['CITY_NAME']) if city_row.iloc[0]['CITY_NAME'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['CITY_CODE']).zfill(12) if city_row.iloc[0]['CITY_CODE'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['MN_CITY_CODE']).zfill(12) if city_row.iloc[0]['MN_CITY_CODE'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['CITY_CD_PS']).zfill(12) if city_row.iloc[0]['CITY_CD_PS'] not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['MN_CITY_CD_PS']).zfill(12) if city_row.iloc[0]['MN_CITY_CD_PS'] not in config.NULL_VALUES else ""
+                str(tip_strada),
+                str(city_row.iloc[0]['POST_CODE']) if city_row.iloc[0]['POST_CODE'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['REGIOGROUP']) if city_row.iloc[0]['REGIOGROUP'] not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['REGPOLIT']) if city_row.iloc[0]['REGPOLIT'] not in config.NULL_VALUES else ""
             ]
 
             for col_idx, (header, cell_value) in enumerate(zip(headers, row_data), start=1):
