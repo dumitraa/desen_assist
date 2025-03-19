@@ -302,23 +302,32 @@ class DesenAssist:
         
     def set_base_dir(self):
         project = QgsProject.instance()
-        self.layers = {
-            "BRANS_FIRI_GRPM_JT": project.mapLayersByName("BRANS_FIRI_GRPM_JT")[0],
-            "FB pe C LES": project.mapLayersByName("FB pe C LES")[0],
-            "TRONSON_JT": project.mapLayersByName("TRONSON_JT")[0],
-            "STALP_JT": project.mapLayersByName("STALP_JT")[0],
-            "LINIE_JT": project.mapLayersByName("LINIE_JT")[0]
-        }
-                
-        """Set base directory and update icons."""
-        base_dir = QFileDialog.getExistingDirectory(None, "Select Base Directory", "")
+        missing_layers = []
+        layers = {}
+        
+        required_layers = ["BRANS_FIRI_GRPM_JT", "FB pe C LES", "TRONSON_JT", "STALP_JT", "LINIE_JT"]
+        
+        for layer_name in required_layers:
+            found_layers = project.mapLayersByName(layer_name)
+            if not found_layers:
+                missing_layers.append(layer_name)
+            else:
+                layers[layer_name] = found_layers[0]
+        
+        if missing_layers:
+            missing_str = ", ".join(missing_layers)
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {missing_str}")
+            return
+
+        self.layers = layers
+        
+        base_dir = QFileDialog.getExistingDirectory(None, "Selectați folder-ul de bază", "")
         if base_dir:
             self.base_dir = base_dir
-            
             self.fisier_destinatie_action.setIcon(QIcon(str(self.plugin_path('icons/complete.png'))))
-            
             for action in self.actions_to_enable:
                 action.setEnabled(True)
+
         
     def get_layer_path(self, layer_name):
         """
