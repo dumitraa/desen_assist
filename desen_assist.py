@@ -39,7 +39,9 @@ from qgis.core import ( # type: ignore
     QgsVectorFileWriter,
     QgsWkbTypes,
     Qgis,
-    QgsSpatialIndex
+    QgsSpatialIndex,
+    QgsGeometry,
+    QgsPointXY,
     )
 import os
 from pathlib import Path
@@ -197,6 +199,14 @@ class DesenAssist:
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/separate.png')),
                 enabled_flag=False
+            ),
+            self.add_action(
+                "Taiere bransament BPMP la 1m",
+                text=self.tr(u'Taiere bransament BPMP la 1m'),
+                callback=self.cut_bpmp,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/cut.png')),
+                enabled_flag=True
             ),
             self.add_action(
                 "Verificare numerotare stâlpi",
@@ -548,12 +558,125 @@ class DesenAssist:
             QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
 
 
+    def cut_bpmp(self):
+        # Retrieve the layers
+        br_layer = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
+        st_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+
+        # Define field names to check
+        br_field = "TIP_FIRI_BR"
+        cond_field = "TIP_COND"
+
+        # Start an edit session on the br_layer if not already in one
+        if not br_layer.isEditable():
+            br_layer.startEditing()
+
+        # Iterate through each feature
+        for feat in br_layer.getFeatures():
+            # Apply condition: check if the field value is BMPM or BMPT
+            # and that TIP_COND is not 'ACYABY 4x16'
+            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] != "ACYABY 4x16":
+                geom = feat.geometry()
+                # Ensure we are dealing with a simple polyline (skip multipart for now)
+                if geom.isMultipart():
+                    # Optionally handle multipart geometries here
+                    print(f"Skipping feature {feat.id()} because it is multipart.")
+                    continue
+
+                points = geom.asPolyline()
+                # Require at least two vertices to define a segment
+                if len(points) < 2:
+                    continue
+
+                # Identify the last segment endpoints
+                p_second_last = points[-2]
+                p_last = points[-1]
+
+                # Compute the current segment length
+                current_length = p_second_last.distance(p_last)
+                # Avoid division by zero
+                if current_length == 0:
+                    continue
+
+                # Compute the normalized direction vector from the second-last to the last vertex
+                dx = p_last.x() - p_second_last.x()
+                dy = p_last.y() - p_second_last.y()
+                norm = (dx**2 + dy**2)**0.5
+                ndx = dx / norm
+                ndy = dy / norm
+
+                # The new last vertex is positioned 1 meter from the second-last vertex,
+                # regardless of whether that means shortening or extending the segment.
+                new_last = QgsPointXY(p_second_last.x() + ndx * 1.0,
+                                    p_second_last.y() + ndy * 1.0)
+                points[-1] = new_last
+
+                # Reconstruct the geometry with the adjusted vertex
+                new_geom = QgsGeometry.fromPolylineXY(points)
+                # Update the feature's geometry in the layer
+                br_layer.changeGeometry(feat.id(), new_geom)
+
+        # Commit all changes made during the edit session
+        br_layer.commitChanges()
+        QMessageBox.information(None, "Success", "Bransamentele BMPM și BMPT au fost tăiate cu succes la 1 metru.")
+
 
 # A.	Verificare numerotare stalpi
     def verify_pole_numbering(self):
-        self.verify_pole_numbering_br()
-        self.verify_pole_numbering_jt()
-        QMessageBox.information(None, "Verificare numerotare stâlpi", "Verificare finalizată cu succes! Stâlpii au fost sortați și numerotați corect.")
+        """
+        Verifies and sorts a field numerically, adding an "order" column for verification.
+        1. Refactor fields for STALP_JT layer - new scratch layer - "Verificare_numerotare_stalpi"
+        2. Filter/only take into account features which has "JT" included in "TIP_CIR"
+        3. Add a new field "ID_PROVIZ" to the layer
+        4. Populate it with @row_number - 1 (for the filtered features)
+        5. Create new column "MATCH_STATUS" and populate it with "Da" if "ID_PROVIZ" == "DENUM", else "Nu"
+        """
+        # Step 1: Get the original layer (replace 'layer_name' with your actual layer name)
+        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+
+        # Step 2: Filter features with "JT" in the "TIP_CIR" field
+        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
+
+        # Step 3: Create a new scratch layer
+        scratch_layer = QgsVectorLayer(
+            "Point?crs=" + original_layer.crs().toWkt(), 
+            "Verificare_numerotare_stalpi", 
+            "memory"
+        )
+        scratch_layer_data = scratch_layer.dataProvider()
+
+        # Add only the necessary fields
+        fields = QgsFields()
+        fields.append(QgsField("fid", QVariant.Int))
+        fields.append(QgsField("TIP_CIR", QVariant.String))
+        fields.append(QgsField("ID_PROVIZ", QVariant.Int))
+        fields.append(QgsField("DENUM", QVariant.String))
+        fields.append(QgsField("MATCH_STATUS", QVariant.String))
+        scratch_layer_data.addAttributes(fields)
+        scratch_layer.updateFields()
+
+        # Step 4: Populate the new layer with filtered features and compute new fields
+        for idx, feature in enumerate(jt_features):
+            new_feature = QgsFeature()
+            new_feature.setGeometry(feature.geometry())
+            new_feature.setFields(scratch_layer.fields())
+
+            # Add new fields
+            new_feature["fid"] = feature.id()
+            new_feature["TIP_CIR"] = feature["TIP_CIR"]
+            new_feature["ID_PROVIZ"] = idx  # Row number starts at 0
+            new_feature["DENUM"] = feature["DENUM"]
+            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == int(feature["DENUM"]) else "Nu"
+
+            # Add feature to the scratch layer
+            scratch_layer_data.addFeature(new_feature)
+
+        # Add the scratch layer to the project
+        QgsProject.instance().addMapLayer(scratch_layer)
+        
+        # self.verify_pole_numbering_br()
+        # self.verify_pole_numbering_jt()
+        # QMessageBox.information(None, "Verificare numerotare stâlpi", "Verificare finalizată cu succes! Stâlpii au fost sortați și numerotați corect.")
 
     def verify_pole_numbering_br(self):
         """
