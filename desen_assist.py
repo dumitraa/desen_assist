@@ -1274,10 +1274,7 @@ class DesenAssist:
 
 # I.	Verificare circuit gresit - WORKING
     def verify_circuit(self):
-        # Hardcoded layer name
         tronson_layer_name = "TRONSON_JT"
-
-        # Get the layer
         tronson_layer = QgsProject.instance().mapLayersByName(tronson_layer_name)
 
         if not tronson_layer:
@@ -1285,41 +1282,18 @@ class DesenAssist:
 
         tronson_layer = tronson_layer[0]
 
-        # Step 1: Dissolve by LINIA_JT
         dissolve_params = {
             'INPUT': tronson_layer,
             'FIELD': ['LINIA_JT'],
             'OUTPUT': 'memory:',
         }
         dissolved_layer = processing.run("native:dissolve", dissolve_params)['OUTPUT']
+        QgsProject.instance().addMapLayer(dissolved_layer)
 
-        # Step 2: Buffer with 0.001
-        buffer_params = {
-            'INPUT': dissolved_layer,
-            'DISTANCE': 0.001,
-            'SEGMENTS': 5,
-            'END_CAP_STYLE': 0,
-            'JOIN_STYLE': 0,
-            'MITER_LIMIT': 2,
-            'DISSOLVE': False,
-            'OUTPUT': 'memory:',
-        }
-        buffered_layer = processing.run("native:buffer", buffer_params)['OUTPUT']
-
-        # Step 3: Multipart to Singlepart
-        singlepart_params = {
-            'INPUT': buffered_layer,
-            'OUTPUT': 'memory:',
-        }
-        singlepart_layer = processing.run("native:multiparttosingleparts", singlepart_params)['OUTPUT']
-
-        # Rename the output layer before adding it to the project
-        singlepart_layer.setName("Verificare_circuite")
-
-        # Add the resulting layer to the project
-        QgsProject.instance().addMapLayer(singlepart_layer)
+        dissolved_layer.setName("Verificare_circuite")
+        QgsProject.instance().addMapLayer(dissolved_layer)
         
-        self.apply_categorization(singlepart_layer, "fid")
+        self.apply_categorization(dissolved_layer, "fid")
         
     def apply_categorization(self, layer, field_name):
             unique_values = layer.uniqueValues(layer.fields().lookupField(field_name))
