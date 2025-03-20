@@ -1322,6 +1322,7 @@ class DesenAssist:
     def verify_mistakes(self):
         self.verify_num_columns()
         self.verify_true_false_columns()
+        QMessageBox.information(None, "Verificare coloane", "Verificare finalizată cu succes! S-au verificat coloanele cu valori numerice și booleane.")
         
     # J.	Verificare numar coloane
     def verify_num_columns(self):
@@ -1384,47 +1385,29 @@ class DesenAssist:
             "NR_CIR_CATV": "CATV",
         }
 
-        created_layers = {}
-
         layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
 
-        scratch_layer = None
+        if not layer.isEditable():
+            layer.startEditing()
+
+        field_names = [field.name() for field in layer.fields()]
+
         for feature in layer.getFeatures():
-            incorrect_columns = set()
             for key_field, bool_field in columns_to_check.items():
-                if key_field not in [field.name() for field in layer.fields()] or bool_field not in [field.name() for field in layer.fields()]:
-                    continue  # Skip if the key field or bool field is not present
+                if key_field not in field_names or bool_field not in field_names:
+                    continue
 
-                key_value = feature[key_field]  # Get the value of the key field
-                bool_value = feature[bool_field]  # Get the value of the bool field
-
-                # Check if key_value is completed (not null or empty)
+                key_value = feature[key_field]
                 is_completed = key_value not in config.NULL_VALUES
 
-                # Ensure the boolean value matches the expected logic
-                if is_completed and bool_value.lower() not in [1, 'true', 'yes', 'da']:
-                    incorrect_columns.add(bool_field)  # Expected "true" but got something else
-                elif not is_completed and bool_value.lower() not in [0, 'false', 'no', 'nu']:
-                    incorrect_columns.add(bool_field)  # Expected "false" but got something else
+                new_value = "Da" if is_completed else "Nu"
 
-            if incorrect_columns:
-                if not scratch_layer:
-                    scratch_layer = self.create_scratch_layer(f"STALP_JT_coloane_gresite_bool", "Point")
-                    created_layers["STALP_JT"] = scratch_layer
+                if feature[bool_field] != new_value:
+                    field_index = layer.fields().indexFromName(bool_field)
+                    layer.changeAttributeValue(feature.id(), field_index, new_value)
 
-                new_feature = QgsFeature(scratch_layer.fields())
-                new_feature.setAttributes([
-                    "STALP_JT",                         
-                    ", ".join(incorrect_columns),     
-                    feature.id()                            
-                ])
-                geometry = feature.geometry()
-                if geometry and geometry.isGeosValid():
-                    new_feature.setGeometry(geometry)
-                    
-                scratch_layer.dataProvider().addFeature(new_feature)
-        for _, layer in created_layers.items():
-            QgsProject.instance().addMapLayer(layer)
+        layer.commitChanges()
+
             
     def verify_streets(self):
         self.process_layers(self.layers)
