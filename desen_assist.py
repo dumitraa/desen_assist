@@ -222,14 +222,6 @@ class DesenAssist:
                 icon_path= str(self.plugin_path('icons/2.png')),
                 enabled_flag=True
             ),
-            # self.add_action(
-            #     "Actualizare denumiri străzi - STALP_JT",
-            #     text=self.tr(u'Actualizare denumiri străzi - STALP_JT'),
-            #     callback=self.update_street_stalp,
-            #     parent=self.iface.mainWindow(),
-            #     icon_path= str(self.plugin_path('icons/3.png')),
-            #     enabled_flag=True
-            # ),
             self.add_action(
                 "Verificare denumiri străzi - BRANS_FIRI_GRPM_JT",
                 text=self.tr(u'Verificare denumiri străzi - BRANS_FIRI_GRPM_JT'),
