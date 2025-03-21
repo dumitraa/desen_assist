@@ -582,7 +582,7 @@ class DesenAssist:
         for feat in br_layer.getFeatures():
             # Apply condition: check if the field value is BMPM or BMPT
             # and that TIP_COND is not 'ACYABY 4x16'
-            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]
+            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]:
                 geom = feat.geometry()
                 # Ensure we are dealing with a simple polyline (skip multipart for now)
                 if geom.isMultipart():
