@@ -222,18 +222,18 @@ class DesenAssist:
                 icon_path= str(self.plugin_path('icons/2.png')),
                 enabled_flag=True
             ),
+            # self.add_action(
+            #     "Actualizare denumiri străzi - STALP_JT",
+            #     text=self.tr(u'Actualizare denumiri străzi - STALP_JT'),
+            #     callback=self.update_street_stalp,
+            #     parent=self.iface.mainWindow(),
+            #     icon_path= str(self.plugin_path('icons/3.png')),
+            #     enabled_flag=True
+            # ),
             self.add_action(
-                "Actualizare denumiri străzi - STALP_JT",
-                text=self.tr(u'Actualizare denumiri străzi - STALP_JT'),
-                callback=self.update_street_stalp,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/3.png')),
-                enabled_flag=True
-            ),
-            self.add_action(
-                "Actualizare denumiri străzi - BRANS_FIRI_GRPM_JT",
-                text=self.tr(u'Actualizare denumiri străzi - BRANS_FIRI_GRPM_JT'),
-                callback=self.update_street_brans,
+                "Verificare denumiri străzi - BRANS_FIRI_GRPM_JT",
+                text=self.tr(u'Verificare denumiri străzi - BRANS_FIRI_GRPM_JT'),
+                callback=self.verify_street_brans,
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/4.png')),
                 enabled_flag=True
@@ -638,24 +638,23 @@ class DesenAssist:
 
 # A.	Verificare numerotare stalpi
     def verify_pole_numbering(self):
-        """
-        Verifies and sorts a field numerically, adding an "order" column for verification.
-        1. Refactor fields for STALP_JT layer - new scratch layer - "Verificare_numerotare_stalpi"
-        2. Filter/only take into account features which has "JT" included in "TIP_CIR"
-        3. Add a new field "ID_PROVIZ" to the layer
-        4. Populate it with @row_number - 1 (for the filtered features)
-        5. Create new column "MATCH_STATUS" and populate it with "Da" if "ID_PROVIZ" == "DENUM", else "Nu"
-        """
-        # Step 1: Get the original layer (replace 'layer_name' with your actual layer name)
+        self.verify_br()
+        self.verify_jt()
+    
+    def verify_jt(self):
+        # Step 1: Get the original layer
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
 
         # Step 2: Filter features with "JT" in the "TIP_CIR" field
-        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
+        jt_features = sorted(
+            [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]],
+            key=lambda f: int(f["DENUM"])
+        )
 
         # Step 3: Create a new scratch layer
         scratch_layer = QgsVectorLayer(
             "Point?crs=" + original_layer.crs().toWkt(), 
-            "Verificare_numerotare_stalpi", 
+            "Verificare_Numerotare_Stalpi_JT", 
             "memory"
         )
         scratch_layer_data = scratch_layer.dataProvider()
@@ -670,34 +669,28 @@ class DesenAssist:
         scratch_layer_data.addAttributes(fields)
         scratch_layer.updateFields()
 
-        # Step 4: Populate the new layer with filtered features and compute new fields
-        for idx, feature in enumerate(jt_features):
+        for idx, feature in enumerate(jt_features, start=1):
+            idx = idx - 1
+            
             new_feature = QgsFeature()
             new_feature.setGeometry(feature.geometry())
             new_feature.setFields(scratch_layer.fields())
 
-            # Add new fields
             new_feature["fid"] = feature.id()
             new_feature["TIP_CIR"] = feature["TIP_CIR"]
-            new_feature["ID_PROVIZ"] = idx  # Row number starts at 0
+            new_feature["ID_PROVIZ"] = idx
             new_feature["DENUM"] = feature["DENUM"]
-            new_feature["MATCH_STATUS"] = "Da" if int(new_feature["ID_PROVIZ"]) == int(feature["DENUM"]) else "Nu"
+            new_feature["MATCH_STATUS"] = "Da" if idx == int(feature["DENUM"]) else "Nu"
+            
+            QgsMessageLog.logMessage(f"Feature {feature.id()} - idx {idx} with {feature['DENUM']} - {new_feature['MATCH_STATUS']}", "DesenAssist", Qgis.Info)
 
-            # Add feature to the scratch layer
             scratch_layer_data.addFeature(new_feature)
+
 
         # Add the scratch layer to the project
         QgsProject.instance().addMapLayer(scratch_layer)
-        
-        # self.verify_pole_numbering_br()
-        # self.verify_pole_numbering_jt()
-        # QMessageBox.information(None, "Verificare numerotare stâlpi", "Verificare finalizată cu succes! Stâlpii au fost sortați și numerotați corect.")
 
-    def verify_pole_numbering_br(self):
-        """
-        Verifies and sorts features numerically by the alphanumeric value of DENUM.
-        Also, ensures DENUM values are uppercased and modifies the original layer for "JT" features.
-        """
+    def verify_br(self):
         original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
 
         # Uppercase the DENUM field in the original layer and save changes
@@ -715,7 +708,7 @@ class DesenAssist:
         # Create a new scratch layer for BR features
         scratch_layer = QgsVectorLayer(
             "Point?crs=" + original_layer.crs().toWkt(),
-            "Verificare_auxiliari",
+            "Verificare_Numerotare_Stalpi_Auxiliari",
             "memory"
         )
         scratch_layer_data = scratch_layer.dataProvider()
@@ -746,80 +739,7 @@ class DesenAssist:
         QgsProject.instance().addMapLayer(scratch_layer)
 
 
-    def verify_pole_numbering_jt(self):
-        """
-        Normalizes DENUM fields in the STALP_JT layer (features where TIP_CIR includes 'JT') so that:
-        - Consecutive duplicates with no suffix (e.g. 11, 11, 12) become 11, 12, 13
-        - If there's a suffix involved (e.g. 11, 11A, 11A), everything shares the same base and suffixes start at A:
-            e.g. => 11, 11A, 11B
-        - Ensures base numbers are sequential with no gaps (e.g. 41, 43 becomes 41, 42)
-        """
-
-        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
-        jt_features = [f for f in original_layer.getFeatures() if "JT" in f["TIP_CIR"]]
-
-        denum_map = {}
-        for feat in jt_features:
-            feature_id = feat.id()
-            base_suffix = self.clean_denum(feat["DENUM"])  # returns (base_int, suffix_str)
-            denum_map[feature_id] = base_suffix
-
-        sorted_items = sorted(denum_map.items(), key=lambda x: (x[1][0], x[1][1]))
-
-        assigned_bases = set()
-        base_suffix_count = defaultdict(int)
-        final_assignments = {}
-        
-        all_bases = sorted(set(base for _, (base, _) in sorted_items))
-        min_base = all_bases[0] if all_bases else 1
-        
-        def next_unused_base(candidate, used_bases):
-            """Finds the next available base number without gaps."""
-            while candidate in used_bases:
-                candidate += 1
-            return candidate
-
-        sequential_bases = {old: new for old, new in zip(all_bases, range(min_base, min_base + len(all_bases)))}
-        
-        for feat_id, (base, suffix) in sorted_items:
-            suffix = suffix.upper()
-            new_base = sequential_bases[base]  # Remap base to sequential numbering
-            
-            if new_base not in assigned_bases:
-                final_assignments[feat_id] = (new_base, "")
-                assigned_bases.add(new_base)
-                base_suffix_count[new_base] = 0
-            else:
-                if suffix == "":
-                    new_base = next_unused_base(new_base, assigned_bases)
-                    final_assignments[feat_id] = (new_base, "")
-                    assigned_bases.add(new_base)
-                    base_suffix_count[new_base] = 0
-                else:
-                    cur_count = base_suffix_count[new_base]
-                    letter = chr(65 + cur_count)  # 65 is 'A'
-                    final_assignments[feat_id] = (new_base, letter)
-                    base_suffix_count[new_base] = cur_count + 1
-
-        original_layer.startEditing()
-
-        for feat_id, (new_base, new_suffix) in final_assignments.items():
-            new_denum = f"{new_base}{new_suffix}"
-            try:
-                feature = original_layer.getFeature(feat_id)
-                feature["DENUM"] = new_denum
-                original_layer.updateFeature(feature)
-            except Exception as e:
-                QgsMessageLog.logMessage(
-                    f"Error updating feature {feat_id} -> {new_base}{new_suffix}: {e}",
-                    'DesenAssist',
-                    Qgis.Critical
-                )
-
-        original_layer.commitChanges()
-
-
-#. B.	Denumirea strazilor pentru stalpi - TO FURTHER TEST
+#. B.	Denumirea strazilor pentru stalpi
     def update_street_stalp(self):
         """
         Updates the STR field in the STALP_JT layer by finding intersecting
@@ -1026,67 +946,75 @@ class DesenAssist:
 
         
 
-# E.	Verificare denumiri strazi bransamente - WORKING
-    def update_street_brans(self):
+    # E.	Verificare denumiri strazi bransamente - WORKING
+    def verify_street_brans(self):
         # Hardcoded layer names
         brans_layer_name = "BRANS_FIRI_GRPM_JT"
         stalp_layer_name = "STALP_JT"
 
-        # Retrieve layers from the project
-        brans_layers = QgsProject.instance().mapLayersByName(brans_layer_name)
-        stalp_layers = QgsProject.instance().mapLayersByName(stalp_layer_name)
+        # Get the layers
+        brans_layer = QgsProject.instance().mapLayersByName(brans_layer_name)
+        stalp_layer = QgsProject.instance().mapLayersByName(stalp_layer_name)
 
-        # Ensure both layers are loaded
-        missing_layers = []
-        if not brans_layers:
-            missing_layers.append(brans_layer_name)
-        if not stalp_layers:
-            missing_layers.append(stalp_layer_name)
-            
-        if missing_layers:
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}")
+        if not brans_layer or not stalp_layer:
+            QgsMessageLog.logMessage("One or both layers are not loaded.", 'DesenAssist', Qgis.Critical)
             return
 
-        brans_layer = brans_layers[0]
-        stalp_layer = stalp_layers[0]
+        brans_layer = brans_layer[0]
+        stalp_layer = stalp_layer[0]
 
-        # Ensure the BRANS layer is editable
-        if not brans_layer.isEditable():
-            brans_layer.startEditing()
+        context = QgsProcessingContext()
 
-        # Build a spatial index for the STALP layer to improve performance
-        stalp_index = QgsSpatialIndex(stalp_layer.getFeatures())
+        # Run the spatial join: join the 'STR' field from stalp_layer to brans_layer features
+        params = {
+            'INPUT': brans_layer,
+            'JOIN': stalp_layer,
+            'PREDICATE': [0],  # Intersects
+            'JOIN_FIELDS': ['STR'],  # Join the STR field from the stalp layer
+            'METHOD': 0,  # Create temporary layer
+            'DISCARD_NONMATCHING': False,
+            'OUTPUT': 'memory:'  # Output to memory
+        }
 
-        # Verify the BRANS layer has the STR field
-        brans_field_index = brans_layer.fields().lookupField("STR")
-        if brans_field_index == -1:
-            QgsMessageLog.logMessage("Field 'STR' not found in BRANS layer.", 'DesenAssist', Qgis.Warning)
+        try:
+            join_output = processing.run("native:joinattributesbylocation", params, context=context)
+            joined_layer = join_output['OUTPUT']
+
+            # Since we know the brans layer is always a Line (LineString), we create a memory layer accordingly.
+            uri = f"LineString?crs={brans_layer.crs().authid()}"
+            non_match_layer = QgsVectorLayer(uri, "Validare_denumiri_strazi_bransamente", "memory")
+            non_match_dp = non_match_layer.dataProvider()
+            non_match_dp.addAttributes([
+                QgsField("BRANS_FID", QVariant.Int),
+                QgsField("BRANS_STREET", QVariant.String),
+                QgsField("STALP_STREET", QVariant.String)
+            ])
+            non_match_layer.updateFields()
+
+            diff_features = []
+            for feature in joined_layer.getFeatures():
+                brans_street = feature['STR']
+                stalp_street = feature['STR_2']
+                if brans_street != stalp_street:
+                    new_feature = QgsFeature(non_match_layer.fields())
+                    new_feature.setAttribute("BRANSAMENT_FID", feature.id())
+                    new_feature.setAttribute("BRANSAMENT_STR", brans_street)
+                    new_feature.setAttribute("STALP_STR", stalp_street)
+                    new_feature.setGeometry(feature.geometry())
+                    diff_features.append(new_feature)
+
+            non_match_dp.addFeatures(diff_features)
+            non_match_layer.updateExtents()
+
+            # Add the differences layer to the project for review
+            QgsProject.instance().addMapLayer(non_match_layer)
+
+        except Exception as e:
+            QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
             return
 
-        # Iterate over each feature in the BRANS layer
-        for brans_feat in brans_layer.getFeatures():
-            geom = brans_feat.geometry()
-
-            # Get candidate STALP feature IDs using the bounding box of the current BRANS feature
-            candidate_ids = stalp_index.intersects(geom.boundingBox())
-
-            # Look for the first STALP point that intersects the BRANS line
-            for cand_id in candidate_ids:
-                cand_feat = stalp_layer.getFeature(cand_id)
-                cand_geom = cand_feat.geometry()
-                if geom.intersects(cand_geom):
-                    new_str = cand_feat["STR"]
-                    brans_layer.dataProvider().changeAttributeValues({
-                        brans_feat.id(): {brans_field_index: new_str}
-                    })
-                    break  # Use only the first intersecting STALP point
-
-        # Commit the changes after processing all features
-        brans_layer.commitChanges()
-
-        
-        QMessageBox.information(None, "STR - BRANS_FIRI_GRPM_JT", "Denumirile străzilor pentru bransamente au fost actualizate cu succes.")
-
+        QMessageBox.information(None, "STR - BRANS_FIRI_GRPM_JT", 
+            "Denumirile străzilor pentru bransamente au fost verificate cu succes. Verificați stratul 'Validare_denumiri_strazi_bransamente'.")
 
         
 # F.	Completare automata a coloanei “PROP” de la STALP_JT - WORKING
@@ -1134,7 +1062,7 @@ class DesenAssist:
                 continue
 
             # Only update if the current PROP doesn't match the expected value.
-            if feature['PROP'] != expected_prop:
+            if feature['PROP'] not in [expected_prop, "TERTI + ELECTRICA(comodat)"]:
                 feature['PROP'] = expected_prop
                 layer.updateFeature(feature)
 
@@ -1147,7 +1075,6 @@ class DesenAssist:
     
     
  # G.	Verificarea denumirilor strazilor din layerul STALP_JT (layerul din renns va avea denumirea “nr_postale”) - WORKING
-    
     def verify_street_names_poles(self):
         def normalize_text(text):
             replacements = {
@@ -1158,43 +1085,47 @@ class DesenAssist:
                 text = text.replace(diacritic, replacement)
             return text.upper()
 
+        # Get original layers
         orig_layer = QgsProject.instance().mapLayersByName('STALP_JT')[0]
         nr_postale_layer = QgsProject.instance().mapLayersByName('nr_postale')[0]
 
-        stalp_layer = QgsVectorLayer("Point?crs=EPSG:3844", "STALP_JT_verificare_denum", "memory")
-        stalp_layer_data = stalp_layer.dataProvider()
-        stalp_layer.startEditing()
-        stalp_layer_data.addAttributes(orig_layer.fields())
-        stalp_layer.updateFields()
+        # Create a new memory layer with only one attribute: "STR"
+        memory_layer = QgsVectorLayer("Point?crs=EPSG:3844", "STALP_JT_verificare_denum", "memory")
+        dp = memory_layer.dataProvider()
+        
+        new_fields = QgsFields()
+        new_fields.append(QgsField("fid", QVariant.Int))
+        new_fields.append(QgsField("STR", QVariant.String))
+        dp.addAttributes(new_fields)
+        memory_layer.updateFields()
+
+        # Build a set of normalized names from the nr_postale layer
+        denumire_d_values = set()
+        for feature in nr_postale_layer.getFeatures():
+            denumire_d = feature['DENUMIRE_D']
+            if denumire_d:
+                denumire_d_values.add(normalize_text(denumire_d))
+
+        # Iterate over original features, checking if their normalized STR isn't in the set.
+        # If it isn’t, add a new feature with only the geometry and the normalized STR.
+        memory_layer.startEditing()
         for feature in orig_layer.getFeatures():
-            stalp_layer.addFeature(feature)
-        stalp_layer.commitChanges()
-        QgsProject.instance().addMapLayer(stalp_layer)
+            str_value = feature['STR']
+            if str_value:
+                norm_str = normalize_text(str_value)
+                if norm_str not in denumire_d_values:
+                    new_feat = QgsFeature()
+                    new_feat.setGeometry(feature.geometry())
+                    new_feat.setFields(new_fields)
+                    new_feat['fid'] = feature.id()
+                    new_feat['STR'] = norm_str
+                    dp.addFeatures([new_feat])
+        memory_layer.commitChanges()
 
-        if stalp_layer and nr_postale_layer:
-            if 'MATCH_STATUS' not in [field.name() for field in stalp_layer.fields()]:
-                stalp_layer.dataProvider().addAttributes([QgsField('MATCH_STATUS', QVariant.String)])
-                stalp_layer.updateFields()
-
-            denumire_d_values = set()
-            for feature in nr_postale_layer.getFeatures():
-                denumire_d = feature['DENUMIRE_D']
-                if denumire_d:
-                    denumire_d_values.add(normalize_text(denumire_d))
-                
-            stalp_layer.startEditing()
-
-            for feature in stalp_layer.getFeatures():
-                str_value = feature['STR']
-                if str_value:
-                    normalized_str = normalize_text(str_value)
-                    if normalized_str not in denumire_d_values:
-                        feature['MATCH_STATUS'] = 'Nu'
-                    else:
-                        feature['MATCH_STATUS'] = 'Da'
-                    stalp_layer.updateFeature(feature)
-
+        QgsProject.instance().addMapLayer(memory_layer)
         QgsProject.instance().write()
+
+
     
 #. H.	Verificarea coloanelor unde campurile sunt obligatorii - WORKING
     def verify_mandatory_columns(self):
@@ -1293,7 +1224,7 @@ class DesenAssist:
         dissolved_layer.setName("Verificare_circuite")
         QgsProject.instance().addMapLayer(dissolved_layer)
         
-        self.apply_categorization(dissolved_layer, "fid")
+        self.apply_categorization(dissolved_layer, "LINIA_JT")
         
     def apply_categorization(self, layer, field_name):
             unique_values = layer.uniqueValues(layer.fields().lookupField(field_name))
