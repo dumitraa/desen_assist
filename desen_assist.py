@@ -582,7 +582,7 @@ class DesenAssist:
         for feat in br_layer.getFeatures():
             # Apply condition: check if the field value is BMPM or BMPT
             # and that TIP_COND is not 'ACYABY 4x16'
-            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] != "ACYABY 4x16":
+            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]
                 geom = feat.geometry()
                 # Ensure we are dealing with a simple polyline (skip multipart for now)
                 if geom.isMultipart():
@@ -694,7 +694,7 @@ class DesenAssist:
                 original_layer.updateFeature(feature)
         original_layer.commitChanges()
 
-        jt_features = [f for f in original_layer.getFeatures() if re.search(r'[A-Za-z]', str(f["DENUM"]))]
+        jt_features = [f for f in original_layer.getFeatures() if "BR" in f["TIP_CIR"] and "JT" not in f["TIP_CIR"]]
         jt_features_sorted = sorted(jt_features, key=lambda f: self.clean_denum(f["DENUM"]))
 
         # Create a new scratch layer for BR features
@@ -910,7 +910,7 @@ class DesenAssist:
             code = feature["TIP_FIRI_BR"]
             tip_cond = feature["TIP_COND"]
             
-            fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4x16"]
+            fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4X16", "AFYI 4x16"]
             fdcp_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "ACBYCY 16/16"]
             
             if code in code_to_branch:
@@ -922,7 +922,7 @@ class DesenAssist:
             else:
                 branch_value = "monofazat"
                 
-            if code == "FDCS" and tip_cond == "ACYABY 4x16":
+            if code == "FDCS" and tip_cond in ["ACYABY 4X16", "ACYABY 4x16"]:
                 vague = True
             
             if branch_value:
@@ -932,7 +932,7 @@ class DesenAssist:
         if layer.commitChanges():
             QMessageBox.information(None, "TIP_BR", "Campul TIP_BR a fost actualizat cu succes.")
             if vague:
-                QMessageBox.critical(None, "AVERTIZARE", "⚠️ A fost gasit un caz special pentru FDCS si ACYABY 4x16! Verificati si completati manual.")
+                QMessageBox.critical(None, "AVERTIZARE", "⚠️ A fost gasit un caz special pentru FDCS si ACYABY 4X16! Verificati si completati manual.")
         else:
             QMessageBox.critical(None, "TIP_BR", "Eroare la actualizarea campului TIP_BR.")
 
