@@ -433,7 +433,7 @@ class DesenAssist:
         if success:
             self.separate_poles_by_id(self.layers)
         else:
-            QMessageBox.warning(None, "Eroare", "Eroare la asignarea ID_BDI")
+            QMessageBox.critical(None, "Eroare", "Eroare la asignarea ID_BDI")
     
     def assign_id_bdis(self, layers):
         """
@@ -503,85 +503,86 @@ class DesenAssist:
         """
         Filters all layers based on user-input ID_BDI values and exports them into single .gpkg files per layer type.
         """
-        # Get ID_BDI from user
         id_bdis, ok = QInputDialog.getText(None, "Input ID_BDI", "ID_BDI:")
-        if not ok or not id_bdis:
+
+        if ok and not id_bdis:
             QMessageBox.warning(None, "Input Error", "ID_BDI nu a fost introdus.")
             return
-        
-        # Convert input IDs to a list
-        id_bdi_list = [id_bdi.strip() for id_bdi in id_bdis.split(",") if id_bdi.strip()]
-        
-        # Access the layers
-        linie_jt_layer = layers["LINIE_JT"]
-        stalp_jt_layer = layers["STALP_JT"]
-        brans_layer = layers["BRANS_FIRI_GRPM_JT"]
-        fb_les_layer = layers["FB pe C LES"]
-        tronson_layer = layers["TRONSON_JT"]
-        
-        # Define layers to filter
-        layers_to_filter = {
-            "LINIE_JT": linie_jt_layer,
-            "STALP_JT": stalp_jt_layer,
-            "BRANS_FIRI_GRPM_JT": brans_layer,
-            "FB pe C LES": fb_les_layer,
-            "TRONSON_JT": tronson_layer
-        }
-        
-        base_dir = self.base_dir
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
-        
-        # Create a new group in QGIS
-        root = QgsProject.instance().layerTreeRoot()
-        new_group = root.addGroup(f"Date_Filtrate_{'_'.join(id_bdi_list)}")
-        
-        missing_id_bdis = []
-        
-        for id_bdi in id_bdi_list:
-            found = False
-            for feature in linie_jt_layer.getFeatures():
-                if str(feature["ID_BDI"]) == id_bdi:
-                    found = True
-                    break
-            if not found:
-                missing_id_bdis.append(id_bdi)
-        
-        for layer_name, original_layer in layers_to_filter.items():
-            # Retrieve geometry type and CRS
-            geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
-            crs = original_layer.crs().authid()
+
+        if id_bdis:
+            # Convert input IDs to a list
+            id_bdi_list = [id_bdi.strip() for id_bdi in id_bdis.split(",") if id_bdi.strip()]
             
-            # Create a new in-memory layer
-            new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
-            new_layer_data = new_layer.dataProvider()
-            new_layer_data.addAttributes(original_layer.fields())
-            new_layer.updateFields()
+            # Access the layers
+            linie_jt_layer = layers["LINIE_JT"]
+            stalp_jt_layer = layers["STALP_JT"]
+            brans_layer = layers["BRANS_FIRI_GRPM_JT"]
+            fb_les_layer = layers["FB pe C LES"]
+            tronson_layer = layers["TRONSON_JT"]
             
-            # Collect all matching features
-            matching_features = []
-            for feature in original_layer.getFeatures():
-                if str(feature["ID_BDI"]) in id_bdi_list:
-                    matching_features.append(QgsFeature(feature))
+            # Define layers to filter
+            layers_to_filter = {
+                "LINIE_JT": linie_jt_layer,
+                "STALP_JT": stalp_jt_layer,
+                "BRANS_FIRI_GRPM_JT": brans_layer,
+                "FB pe C LES": fb_les_layer,
+                "TRONSON_JT": tronson_layer
+            }
             
-            # Add filtered features to new layer (even if empty)
-            new_layer_data.addFeatures(matching_features)
-            new_layer.updateExtents()
+            base_dir = self.base_dir
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir)
             
-            # Export to GeoPackage
-            output_path = os.path.join(base_dir, f"{layer_name}.gpkg")
-            QgsVectorFileWriter.writeAsVectorFormat(
-                new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
-            )
+            # Create a new group in QGIS
+            root = QgsProject.instance().layerTreeRoot()
+            new_group = root.addGroup(f"Date_Filtrate_{'_'.join(id_bdi_list)}")
             
-            # Add to QGIS and group
-            QgsProject.instance().addMapLayer(new_layer, False)
-            new_group.addLayer(new_layer)
-        
-        QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes")
-        
-        if missing_id_bdis:
-            QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
+            missing_id_bdis = []
+            
+            for id_bdi in id_bdi_list:
+                found = False
+                for feature in linie_jt_layer.getFeatures():
+                    if str(feature["ID_BDI"]) == id_bdi:
+                        found = True
+                        break
+                if not found:
+                    missing_id_bdis.append(id_bdi)
+            
+            for layer_name, original_layer in layers_to_filter.items():
+                # Retrieve geometry type and CRS
+                geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
+                crs = original_layer.crs().authid()
+                
+                # Create a new in-memory layer
+                new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
+                new_layer_data = new_layer.dataProvider()
+                new_layer_data.addAttributes(original_layer.fields())
+                new_layer.updateFields()
+                
+                # Collect all matching features
+                matching_features = []
+                for feature in original_layer.getFeatures():
+                    if str(feature["ID_BDI"]) in id_bdi_list:
+                        matching_features.append(QgsFeature(feature))
+                
+                # Add filtered features to new layer (even if empty)
+                new_layer_data.addFeatures(matching_features)
+                new_layer.updateExtents()
+                
+                # Export to GeoPackage
+                output_path = os.path.join(base_dir, f"{layer_name}.gpkg")
+                QgsVectorFileWriter.writeAsVectorFormat(
+                    new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
+                )
+                
+                # Add to QGIS and group
+                QgsProject.instance().addMapLayer(new_layer, False)
+                new_group.addLayer(new_layer)
+            
+            QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes")
+            
+            if missing_id_bdis:
+                QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
 
     def complete_fields(self):
         '''
@@ -660,7 +661,7 @@ class DesenAssist:
 
         # Commit all changes made during the edit session
         br_layer.commitChanges()
-        QMessageBox.information(None, "Success", "Bransamentele BMPM și BMPT au fost tăiate cu succes la 1 metru.")
+        QMessageBox.information(None, "Success", "Bransamentele BMPM, BMPT, FDCS și FDCP (cu exceptia celor cu TIP_COND = ACYABY 4x16) au fost ajustate la 1 metru.")
 
 
 # A.	Verificare numerotare stalpi
@@ -834,7 +835,7 @@ class DesenAssist:
         if mismatches:
             scratch_layer = QgsVectorLayer("LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
             fields = QgsFields()
-            fields.append(QgsField("fid", QVariant.String))
+            fields.append(QgsField("BRANSAMENT_fid", QVariant.String))
             fields.append(QgsField("TRONSON_JT_LINIA_JT", QVariant.String))
             fields.append(QgsField("BRANSAMENT_LINIA_JT", QVariant.String))
             scratch_layer.dataProvider().addAttributes(fields)
@@ -1010,6 +1011,8 @@ class DesenAssist:
         }
 
         created_layers = {}
+        
+        mistake = False
 
         for layer_name, columns in layers_to_check.items():
             layers = QgsProject.instance().mapLayersByName(layer_name.strip())
@@ -1037,6 +1040,7 @@ class DesenAssist:
                             incomplete_columns.add(column)
                         
                 if incomplete_columns:
+                    mistake = True
                     if not scratch_layer:
                         scratch_layer = self.create_scratch_layer(f"{layer_name}_coloane_necompletate", geom_type)
                         created_layers[layer_name] = scratch_layer
@@ -1053,10 +1057,16 @@ class DesenAssist:
                             new_feature.setGeometry(geometry)
                             
                     scratch_layer.dataProvider().addFeature(new_feature)
-
-
-        for name, layer in created_layers.items():
-            QgsProject.instance().addMapLayer(layer)
+            
+        if mistake:
+            group = QgsProject.instance().layerTreeRoot().addGroup("Coloane necompletate")
+            for _, layer in created_layers.items():
+                QgsProject.instance().addMapLayer(layer, False)
+                group.addLayer(layer)
+            
+            QMessageBox.warning(None, "Coloane necompletate", "Unele coloane obligatorii nu sunt completate. Verifică layerele rezultate.")
+        else:
+            QMessageBox.information(None, "Coloane completate", "Toate coloanele obligatorii sunt completate.")
 
     def verify_circuit(self):
         tronson_layer_name = "TRONSON_JT"
@@ -1161,7 +1171,7 @@ class DesenAssist:
             QgsProject.instance().addMapLayer(layer)
             
         if mistake:
-            QMessageBox.information(None, "STALP_JT", "Unele coloane specificate conțin litere în loc de valori strict numerice. Verifică layerul rezultate.")
+            QMessageBox.information(None, "STALP_JT", "Unele coloane specificate conțin litere în loc de valori strict numerice. Verifică layerul rezultat.")
         else:
             QMessageBox.information(None, "STALP_JT", "Toate coloanele specificate [UZURA_STP, NR_CIR_FO, NR_CIR_LTC, NR_CIR_CATV, NR_CONS_C2S, NR_CONS_C4S, NR_CONS_C2T, NR_CONS_C4T, NR_CONS_C2BR, NR_CONS_C4BR] conțin doar valori numerice.")
 
