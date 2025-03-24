@@ -273,7 +273,7 @@ class DesenAssist:
             self.add_action(
                 "Verificare greseli (coloane alfanumerice, colerari gresite) - STALP_JT",
                 text=self.tr(u'Verificare greseli'),
-                callback=self.verify_mistakes,
+                callback=self.verify_mistakes_complete,
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/10.png')),
             ),
@@ -586,8 +586,6 @@ class DesenAssist:
                 geom = feat.geometry()
                 # Ensure we are dealing with a simple polyline (skip multipart for now)
                 if geom.isMultipart():
-                    # Optionally handle multipart geometries here
-                    print(f"Skipping feature {feat.id()} because it is multipart.")
                     continue
 
                 points = geom.asPolyline()
@@ -1242,9 +1240,10 @@ class DesenAssist:
             layer.setRenderer(renderer)
             layer.triggerRepaint()
         
-    def verify_mistakes(self):
+    def verify_mistakes_complete(self):
         self.verify_num_columns()
         self.verify_true_false_columns()
+        self.complete_fields()
         QMessageBox.information(None, "Verificare coloane", "Verificare finalizată cu succes! S-au verificat coloanele cu valori numerice și booleane.")
         
     # J.	Verificare numar coloane
@@ -1330,7 +1329,33 @@ class DesenAssist:
                     layer.changeAttributeValue(feature.id(), field_index, new_value)
 
         layer.commitChanges()
-
+        
+    def complete_fields(self):
+        '''
+        STALP_JT
+        > if NR_CIR_FO is completed, PROP_FO = SC RCS&RDS S.A
+        > UZURA_STP = 5 if field is in config.NULL_VALUES
+        '''
+        layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        
+        if not layer.isEditable():
+            layer.startEditing()
+            
+        field_names = [field.name() for field in layer.fields()]
+        
+        for feature in layer.getFeatures():
+            if "NR_CIR_FO" in field_names and "PROP_FO" in field_names:
+                nr_cir_fo = feature["NR_CIR_FO"]
+                prop_fo = feature["PROP_FO"]
+                if nr_cir_fo not in config.NULL_VALUES and prop_fo in config.NULL_VALUES:
+                    layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("PROP_FO"), "SC RCS&RDS S.A")
+            
+            if "UZURA_STP" in field_names:
+                uzura_stp = feature["UZURA_STP"]
+                if uzura_stp in config.NULL_VALUES:
+                    layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("UZURA_STP"), 5)
+                    
+        layer.commitChanges()
             
     def verify_streets(self):
         self.process_layers(self.layers)

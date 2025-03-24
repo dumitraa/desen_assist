@@ -7,7 +7,6 @@ from openpyxl import load_workbook
 import os
 from .. import config
 
-
 class GenerateExcelDialog(QDialog):
     def __init__(self, base_dir):
         super().__init__()
@@ -116,7 +115,7 @@ class GenerateExcelDialog(QDialog):
 
     
     def write_missing_streets_to_excel(self, missing_streets, city_row):
-        new_file_name = f"Tabel_completare strazi in nomenclatorul de adrese.xlsx"
+        new_file_name = f"Tabel_completare strazi in nomenclatorul de adrese_{self.locality_input.text().strip()}.xlsx"
         output_file = self.create_valid_output(self.base_dir, new_file_name)
         template_path = self.plugin_path('templates', 'to_complete.xlsx')
 
