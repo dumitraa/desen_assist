@@ -333,7 +333,7 @@ class DesenAssist:
                 layers[layer_name] = found_layers[0]
         
         if missing_layers:
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
 
         self.layers = layers
@@ -801,7 +801,7 @@ class DesenAssist:
         if not tronson_layers:
             missing_layers.append('TRONSON_JT')
         if missing_layers:
-            QMessageBox.critical(None, 'Eroare', f'Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.')
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
         
         brans_layer = brans_layers[0]
@@ -835,7 +835,7 @@ class DesenAssist:
         if mismatches:
             scratch_layer = QgsVectorLayer("LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
             fields = QgsFields()
-            fields.append(QgsField("BRANSAMENT_fid", QVariant.String))
+            fields.append(QgsField("fid", QVariant.String))
             fields.append(QgsField("TRONSON_JT_LINIA_JT", QVariant.String))
             fields.append(QgsField("BRANSAMENT_LINIA_JT", QVariant.String))
             scratch_layer.dataProvider().addAttributes(fields)
@@ -900,9 +900,9 @@ class DesenAssist:
             non_match_layer = QgsVectorLayer(uri, "Validare_denumiri_strazi_bransamente", "memory")
             non_match_dp = non_match_layer.dataProvider()
             non_match_dp.addAttributes([
-                QgsField("BRANS_FID", QVariant.Int),
-                QgsField("BRANS_STREET", QVariant.String),
-                QgsField("STALP_STREET", QVariant.String)
+                QgsField("BRANSAMENT_fid", QVariant.Int),
+                QgsField("BRANSAMENT_STR", QVariant.String),
+                QgsField("STALP_STR", QVariant.String)
             ])
             non_match_layer.updateFields()
 
@@ -912,7 +912,7 @@ class DesenAssist:
                 stalp_street = feature['STR_2']
                 if brans_street != stalp_street:
                     new_feature = QgsFeature(non_match_layer.fields())
-                    new_feature.setAttribute("BRANSAMENT_FID", feature.id())
+                    new_feature.setAttribute("BRANSAMENT_fid", feature.id())
                     new_feature.setAttribute("BRANSAMENT_STR", brans_street)
                     new_feature.setAttribute("STALP_STR", stalp_street)
                     new_feature.setGeometry(feature.geometry())
@@ -950,6 +950,9 @@ class DesenAssist:
         if missing_layers:
             QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
+        
+        nr_postale_layer = nr_postale_layer[0]
+        orig_layer = orig_layer[0]
 
         memory_layer = QgsVectorLayer("Point?crs=EPSG:3844", "STALP_JT_verificare_denum", "memory")
         dp = memory_layer.dataProvider()
