@@ -333,7 +333,7 @@ class DesenAssist:
                 layers[layer_name] = found_layers[0]
         
         if missing_layers:
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
 
         self.layers = layers
@@ -801,7 +801,7 @@ class DesenAssist:
         if not tronson_layers:
             missing_layers.append('TRONSON_JT')
         if missing_layers:
-            QMessageBox.critical(None, 'Eroare', f'Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.')
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
         
         brans_layer = brans_layers[0]
