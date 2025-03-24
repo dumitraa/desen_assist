@@ -267,28 +267,41 @@ class DesenAssist:
             "Lungime PT",
             text=self.tr(u"Lungime TRONSON_JT: 0.0 km")
         )
-        
+
+        QgsProject.instance().layersAdded.connect(self.onLayersAdded)
+        QgsProject.instance().loadingLayer.connect(self.onProjectRead)
+
         layers = QgsProject.instance().mapLayersByName("TRONSON_JT")
-        if not layers:
-            return
-        self.layer = layers[0]
+        if layers:
+            self.layer = layers[0]
+            self.connectLayerSignals(self.layer)
+            self.recalc_length()
 
-        # Connect signals so we recalc on geometry/feature changes in an editing session
-        self.layer.featureAdded.connect(self.recalc_length)
-        self.layer.featuresDeleted.connect(self.recalc_length)
-        self.layer.geometryChanged.connect(self.recalc_length)
-
-        # Connect post‐commit signals (when user stops editing & saves changes)
-        self.layer.committedFeaturesAdded.connect(self.recalc_length)
-        self.layer.committedFeaturesRemoved.connect(self.recalc_length)
-        self.layer.committedGeometriesChanges.connect(self.recalc_length)
-        
-        self.layer.afterCommitChanges.connect(self.recalc_length)
-
-        self.recalc_length()
-        
         # will be set False in run()
         self.first_start = True
+
+    def connectLayerSignals(self, layer):
+        layer.featureAdded.connect(self.recalc_length)
+        layer.featuresDeleted.connect(self.recalc_length)
+        layer.geometryChanged.connect(self.recalc_length)
+        layer.committedFeaturesAdded.connect(self.recalc_length)
+        layer.committedFeaturesRemoved.connect(self.recalc_length)
+        layer.committedGeometriesChanges.connect(self.recalc_length)
+        layer.afterCommitChanges.connect(self.recalc_length)
+
+    def onLayersAdded(self, layers):
+        for layer in layers:
+            if layer.name() == "TRONSON_JT":
+                self.layer = layer
+                self.connectLayerSignals(layer)
+                self.recalc_length()
+
+    def onProjectRead(self):
+        layers = QgsProject.instance().mapLayersByName("TRONSON_JT")
+        if layers:
+            self.layer = layers[0]
+            self.connectLayerSignals(self.layer)
+            self.recalc_length()
 
     def recalc_length(self):
         """Recalculate the total length for TRONSON_JT, ignoring overlaps."""
@@ -310,6 +323,9 @@ class DesenAssist:
 
         if self.action_length:
             self.action_length.setText(self.tr(u"Lungime TRONSON_JT: {:.2f} km".format(total_length_km)))
+
+        QgsMessageLog.logMessage(f"Lungime TRONSON_JT: {total_length_km} km", "DesenAssist", Qgis.Info)
+
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
