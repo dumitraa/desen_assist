@@ -188,7 +188,6 @@ class DesenAssist:
             icon_path= str(self.plugin_path('icons/folder.png')),
             enabled_flag=True
         )
-                
         self.actions_to_enable = [
             self.add_action(
                 "Separare posturi dupa ID_BDI",
@@ -199,11 +198,19 @@ class DesenAssist:
                 enabled_flag=False
             ),
             self.add_action(
-                "Ajustare bransament BPMP la 1m",
-                text=self.tr(u'Ajustare bransament BPMP la 1m'),
+                "Ajustare bransamente la 1m",
+                text=self.tr(u'Ajustare bransamente la 1m'),
                 callback=self.cut_bpmp,
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/cut.png')),
+                enabled_flag=True
+            ),
+            self.add_action(
+                "Completare câmpuri",
+                text=self.tr(u'Completare câmpuri'),
+                callback=self.complete_fields,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/autocomplete.png')),
                 enabled_flag=True
             ),
             self.add_action(
@@ -211,23 +218,15 @@ class DesenAssist:
                 text=self.tr(u'Verificare numerotare stâlpi'),
                 callback=self.verify_pole_numbering,
                 parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/1.png')),
+                icon_path= str(self.plugin_path('icons/num.png')),
                 enabled_flag=True
             ),
             self.add_action(
-                "Verificare denumire străzi - STALP_JT",
-                text=self.tr(u'Verificare denumire străzi - STALP_JT'),
-                callback=self.verify_street_names_poles,
+                "Verificare denumire străzi - STALP_JT, BRANS_FIRI_GRPM_JT",
+                text=self.tr(u'Verificare denumire străzi - STALP_JT, BRANS_FIRI_GRPM_JT'),
+                callback=self.verify_street_names,
                 parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/2.png')),
-                enabled_flag=True
-            ),
-            self.add_action(
-                "Verificare denumiri străzi - BRANS_FIRI_GRPM_JT",
-                text=self.tr(u'Verificare denumiri străzi - BRANS_FIRI_GRPM_JT'),
-                callback=self.verify_street_brans,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/4.png')),
+                icon_path= str(self.plugin_path('icons/street.png')),
                 enabled_flag=True
             ),
             self.add_action(
@@ -235,31 +234,15 @@ class DesenAssist:
                 text=self.tr(u'Corespondență LINIA_JT - TRONSON_JT cu BRANS_FIRI_GRPM_JT'),
                 callback=self.verify_linia_jt_matches,
                 parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/5.png')),
+                icon_path= str(self.plugin_path('icons/mapping.png')),
                 enabled_flag=True
             ),
             self.add_action(
-                "Actualizare TIP_BR - BRANS_FIRI_GRPM_JT",
-                text=self.tr(u'Actualizare TIP_BR - BRANS_FIRI_GRPM_JT'),
-                callback=self.update_branch_fields,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/6.png')),
-                enabled_flag=True
-            ),
-            self.add_action(
-                "Actualizare PROP - STALP_JT",
-                text=self.tr(u'Actualizare PROP - STALP_JT'),
-                callback=self.update_prop_column,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/7.png')),
-                enabled_flag=True
-            ),
-            self.add_action(
-                "Verificare coloane obligatorii",
-                text=self.tr(u'Verificare coloane obligatorii'),
+                "Verificare coloane",
+                text=self.tr(u'Verificare coloane'),
                 callback=self.verify_mandatory_columns,
                 parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/8.png')),
+                icon_path= str(self.plugin_path('icons/mandatory.png')),
                 enabled_flag=True
             ),
             self.add_action(
@@ -267,15 +250,8 @@ class DesenAssist:
                 text=self.tr(u'Verificare circuit greșit'),
                 callback=self.verify_circuit,
                 parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/9.png')),
+                icon_path= str(self.plugin_path('icons/circuit.png')),
                 enabled_flag=True
-            ),
-            self.add_action(
-                "Verificare greseli (coloane alfanumerice, colerari gresite) - STALP_JT",
-                text=self.tr(u'Verificare greseli'),
-                callback=self.verify_mistakes_complete,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/10.png')),
             ),
             self.add_action(
                 "Verificare strazi si generare excel",
@@ -287,9 +263,53 @@ class DesenAssist:
             )
         ]
         
+        self.action_length = self.add_action(
+            "Lungime PT",
+            text=self.tr(u"Lungime TRONSON_JT: 0.0 km")
+        )
+        
+        layers = QgsProject.instance().mapLayersByName("TRONSON_JT")
+        if not layers:
+            return
+        self.layer = layers[0]
+
+        # Connect signals so we recalc on geometry/feature changes in an editing session
+        self.layer.featureAdded.connect(self.recalc_length)
+        self.layer.featuresDeleted.connect(self.recalc_length)
+        self.layer.geometryChanged.connect(self.recalc_length)
+
+        # Connect post‐commit signals (when user stops editing & saves changes)
+        self.layer.committedFeaturesAdded.connect(self.recalc_length)
+        self.layer.committedFeaturesRemoved.connect(self.recalc_length)
+        self.layer.committedGeometriesChanges.connect(self.recalc_length)
+        
+        self.layer.afterCommitChanges.connect(self.recalc_length)
+
+        self.recalc_length()
+        
         # will be set False in run()
         self.first_start = True
 
+    def recalc_length(self):
+        """Recalculate the total length for TRONSON_JT, ignoring overlaps."""
+        total_union = None
+
+        for feat in self.layer.getFeatures():
+            geom = feat.geometry()
+            if not geom or geom.isEmpty():
+                continue
+
+            if total_union is None:
+                total_union = geom
+            else:
+                total_union = total_union.combine(geom)
+
+        total_length_km = 0.0
+        if total_union:
+            total_length_km = total_union.length() / 1000.0
+
+        if self.action_length:
+            self.action_length.setText(self.tr(u"Lungime TRONSON_JT: {:.2f} km".format(total_length_km)))
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -313,8 +333,7 @@ class DesenAssist:
                 layers[layer_name] = found_layers[0]
         
         if missing_layers:
-            missing_str = ", ".join(missing_layers)
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {missing_str}")
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
 
         self.layers = layers
@@ -564,11 +583,29 @@ class DesenAssist:
         if missing_id_bdis:
             QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
 
+    def complete_fields(self):
+        '''
+        STALP_JT
+        > if NR_CIR_FO is completed, PROP_FO = SC RCS&RDS S.A
+        > UZURA_STP = 5 if field is in config.NULL_VALUES
+        '''
+        self.update_branch_fields()
+        self.update_prop_column()
+        self.update_tip_fund()
+        self.verify_true_false_columns()
+        self.update_uzu_stp_prop_fo()
+        
+        QMessageBox.information(None, "Completare campuri", "Campurile au fost completate cu succes.")
 
     def cut_bpmp(self):
         # Retrieve the layers
-        br_layer = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
-        st_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        br_layers = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")
+        
+        if not br_layers:
+            QMessageBox.warning(None, "Eroare", "Stratul BRANS_FIRI_GRPM_JT nu a fost găsit.")
+            return
+
+        br_layer = br_layers[0]
 
         # Define field names to check
         br_field = "TIP_FIRI_BR"
@@ -582,7 +619,7 @@ class DesenAssist:
         for feat in br_layer.getFeatures():
             # Apply condition: check if the field value is BMPM or BMPT
             # and that TIP_COND is not 'ACYABY 4x16'
-            if feat[br_field] in ("BMPM", "BMPT") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]:
+            if feat[br_field] in ("BMPM", "BMPT", "FDCS", "FDCP") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]:
                 geom = feat.geometry()
                 # Ensure we are dealing with a simple polyline (skip multipart for now)
                 if geom.isMultipart():
@@ -633,7 +670,13 @@ class DesenAssist:
     
     def verify_jt(self):
         # Step 1: Get the original layer
-        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        original_layers = QgsProject.instance().mapLayersByName("STALP_JT")
+        
+        if not original_layers:
+            QMessageBox.warning(None, "Eroare", "Stratul STALP_JT nu a fost găsit.")
+            return
+        
+        original_layer = original_layers[0]
 
         # Step 2: Filter features with "JT" in the "TIP_CIR" field
         jt_features = sorted(
@@ -681,7 +724,13 @@ class DesenAssist:
         QgsProject.instance().addMapLayer(scratch_layer)
 
     def verify_br(self):
-        original_layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        original_layers = QgsProject.instance().mapLayersByName("STALP_JT")
+        
+        if not original_layers:
+            QMessageBox.warning(None, "Eroare", "Stratul STALP_JT nu a fost găsit.")
+            return
+        
+        original_layer = original_layers[0]
 
         # Uppercase the DENUM field in the original layer and save changes
         original_layer.startEditing()
@@ -729,75 +778,6 @@ class DesenAssist:
         QgsProject.instance().addMapLayer(scratch_layer)
 
 
-#. B.	Denumirea strazilor pentru stalpi
-    def update_street_stalp(self):
-        """
-        Updates the STR field in the STALP_JT layer by finding intersecting
-        street features from the 'strazi' layer and assigning their cleaned
-        DENUMIRE_D value.
-        """
-        # Retrieve layers
-        stalp_layers = QgsProject.instance().mapLayersByName("STALP_JT")
-        strazi_layers = QgsProject.instance().mapLayersByName("strazi")
-        
-        missing_layers = []
-        if not stalp_layers:
-            missing_layers.append("STALP_JT")
-        if not strazi_layers:
-            missing_layers.append("strazi")
-        if missing_layers:
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}")
-            return
-        
-        stalp_layer = stalp_layers[0]
-        strazi_layer = strazi_layers[0]
-        
-        # Create a spatial index for the street layer to speed up spatial queries.
-        spatial_index = QgsSpatialIndex(strazi_layer.getFeatures())
-        
-        # Ensure STALP_JT is in edit mode.
-        if not stalp_layer.isEditable():
-            stalp_layer.startEditing()
-        
-        # Iterate over each pole feature.
-        for pole in stalp_layer.getFeatures():
-            geom = pole.geometry()
-            # Optionally, if you need a bit of a buffer, uncomment the next line:
-            geom = geom.buffer(10, 5)
-            
-            # Get candidate street features whose bounding boxes intersect.
-            candidate_ids = spatial_index.intersects(geom.boundingBox())
-            street_name = None
-            
-            for fid in candidate_ids:
-                street_feature = strazi_layer.getFeature(fid)
-                if geom.intersects(street_feature.geometry()):
-                    # Clean the street name.
-                    raw_name = street_feature["DENUMIRE_D"]
-                    cleaned = (
-                        raw_name.replace('ă', 'a').replace('â', 'a').replace('Ă', 'A')
-                            .replace('î', 'i').replace('Î', 'I')
-                            .replace('ș', 's').replace('Ș', 'S')
-                            .replace('Ş', 'S').replace('ş', 's')
-                            .replace('ț', 't').replace('Ț', 'T')
-                            .replace('Ţ', 'T').replace('ţ', 't')
-                            .replace('Strada ', '')
-                    )
-                    street_name = cleaned.upper()
-                    break  # Use the first matching street
-            
-            # If a street was found, update the STR field.
-            if street_name:
-                pole["STR"] = street_name
-                stalp_layer.updateFeature(pole)
-        
-        # Commit changes and provide feedback.
-        if stalp_layer.commitChanges():
-            QMessageBox.information(None, "STR - STALP_JT", "Denumirile străzilor pentru stalpi au fost actualizate cu succes.")
-        else:
-            QMessageBox.critical(None, "Eroare", "Eroare la actualizarea denumirilor străzilor pentru stalpi.")
-
-
 # C.	Coloana “linie jt” sa fie la fel la bransament si la tronson - WORKING
     def verify_linia_jt_matches(self):
         '''
@@ -820,7 +800,7 @@ class DesenAssist:
         if not tronson_layers:
             missing_layers.append('TRONSON_JT')
         if missing_layers:
-            QMessageBox.critical(None, 'Eroare', f'Urmatoarele straturi lipsesc: {", ".join(missing_layers)}')
+            QMessageBox.critical(None, 'Eroare', f'Urmatoarele straturi lipsesc: {", ".join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.')
             return
         
         brans_layer = brans_layers[0]
@@ -852,7 +832,6 @@ class DesenAssist:
                         mismatches.append(new_feature)
         
         if mismatches:
-            # Create a scratch layer with the same geometry type and CRS as the BRANS layer.
             scratch_layer = QgsVectorLayer("LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
             fields = QgsFields()
             fields.append(QgsField("fid", QVariant.String))
@@ -861,7 +840,6 @@ class DesenAssist:
             scratch_layer.dataProvider().addAttributes(fields)
             scratch_layer.updateFields()
             
-            # Add the mismatched features to the scratch layer.
             scratch_layer.dataProvider().addFeatures(mismatches)
             scratch_layer.commitChanges()
             QgsProject.instance().addMapLayer(scratch_layer)
@@ -873,81 +851,29 @@ class DesenAssist:
                 "Toate campurile de LINIA_JT corespund intre BRANS_FIRI_GRPM_JT si TRONSON_JT.")
 
         
+    def verify_street_names(self):
+        self.verify_street_names_poles()
+        self.verify_street_brans()
+        
+        QMessageBox.information(None, "STR", 
+            "Denumirile străzilor pentru bransamente și stâlpi au fost verificate cu succes. Verifică straturile adăugate pentru detalii.")
 
-# D.	Corelare campuri pentru bransamente – trifazat, monofazat - WORKING
 
-    def update_branch_fields(self):
-        """
-        Updates the TIP_BR field in the 'BRANS_FIRI_GRPM_JT' layer based on the code in TIP_FIRI_BR.
-        For codes 'FB1', 'FM1', 'BMPM', TIP_BR is set to 'monofazat'.
-        For codes 'FB3', 'FM3', 'BMPT', TIP_BR is set to 'trifazat'.
-        Otherwise, TIP_BR is set to 'Invalid Code'.
-        """
-        # Create a reverse mapping from code to branch type.
-        code_to_branch = {
-            "FB1": "monofazat",
-            "FM1": "monofazat",
-            "BMPM": "monofazat",
-            "FB3": "trifazat",
-            "FM3": "trifazat",
-            "BMPT": "trifazat",
-        }
-        
-        layer_list = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")
-        if not layer_list:
-            QgsMessageLog.logMessage("Layer 'BRANS_FIRI_GRPM_JT' not found.", "DesenAssist", Qgis.Critical)
-            return
-        layer = layer_list[0]
-        
-        if not layer.isEditable():
-            layer.startEditing()
-            
-        vague = False
-        
-        for feature in layer.getFeatures():
-            code = feature["TIP_FIRI_BR"]
-            tip_cond = feature["TIP_COND"]
-            
-            fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4X16", "AFYI 4x16"]
-            fdcp_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "ACBYCY 16/16"]
-            
-            if code in code_to_branch:
-                branch_value = code_to_branch[code]
-            elif tip_cond in fdcs_tip_cond_trifazat and code == "FDCS":
-                branch_value = "trifazat"
-            elif tip_cond in fdcp_tip_cond_trifazat and code == "FDCP":
-                branch_value = "trifazat"
-            else:
-                branch_value = "monofazat"
-                
-            if code == "FDCS" and tip_cond in ["ACYABY 4X16", "ACYABY 4x16"]:
-                vague = True
-            
-            if branch_value:
-                feature["TIP_BR"] = branch_value
-            layer.updateFeature(feature)
-        
-        if layer.commitChanges():
-            QMessageBox.information(None, "TIP_BR", "Campul TIP_BR a fost actualizat cu succes.")
-            if vague:
-                QMessageBox.critical(None, "AVERTIZARE", "⚠️ A fost gasit un caz special pentru FDCS si ACYABY 4X16! Verificati si completati manual.")
-        else:
-            QMessageBox.critical(None, "TIP_BR", "Eroare la actualizarea campului TIP_BR.")
-
-        
-
-    # E.	Verificare denumiri strazi bransamente - WORKING
     def verify_street_brans(self):
-        # Hardcoded layer names
         brans_layer_name = "BRANS_FIRI_GRPM_JT"
         stalp_layer_name = "STALP_JT"
 
-        # Get the layers
         brans_layer = QgsProject.instance().mapLayersByName(brans_layer_name)
         stalp_layer = QgsProject.instance().mapLayersByName(stalp_layer_name)
 
-        if not brans_layer or not stalp_layer:
-            QgsMessageLog.logMessage("One or both layers are not loaded.", 'DesenAssist', Qgis.Critical)
+        missing_layers = []
+        if not brans_layer:
+            missing_layers.append(brans_layer_name)
+        if not stalp_layer:
+            missing_layers.append(stalp_layer_name)
+            
+        if missing_layers:
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
             return
 
         brans_layer = brans_layer[0]
@@ -955,7 +881,6 @@ class DesenAssist:
 
         context = QgsProcessingContext()
 
-        # Run the spatial join: join the 'STR' field from stalp_layer to brans_layer features
         params = {
             'INPUT': brans_layer,
             'JOIN': stalp_layer,
@@ -970,7 +895,6 @@ class DesenAssist:
             join_output = processing.run("native:joinattributesbylocation", params, context=context)
             joined_layer = join_output['OUTPUT']
 
-            # Since we know the brans layer is always a Line (LineString), we create a memory layer accordingly.
             uri = f"LineString?crs={brans_layer.crs().authid()}"
             non_match_layer = QgsVectorLayer(uri, "Validare_denumiri_strazi_bransamente", "memory")
             non_match_dp = non_match_layer.dataProvider()
@@ -996,75 +920,13 @@ class DesenAssist:
             non_match_dp.addFeatures(diff_features)
             non_match_layer.updateExtents()
 
-            # Add the differences layer to the project for review
             QgsProject.instance().addMapLayer(non_match_layer)
 
         except Exception as e:
             QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
             return
 
-        QMessageBox.information(None, "STR - BRANS_FIRI_GRPM_JT", 
-            "Denumirile străzilor pentru bransamente au fost verificate cu succes. Verificați stratul 'Validare_denumiri_strazi_bransamente'.")
 
-        
-# F.	Completare automata a coloanei “PROP” de la STALP_JT - WORKING
-
-    def update_prop_column(self):
-        """
-        Updates the PROP field in the 'STALP_JT' layer based on the DESC_CTG_MT_JT field.
-        If DESC_CTG_MT_JT is in the terti_codes list, PROP is set to 'TERTI';
-        if it's in the electrica_codes list, PROP is set to 'ELECTRICA'.
-        """
-        layers = QgsProject.instance().mapLayersByName('STALP_JT')
-        if not layers:
-            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
-            return
-        layer = layers[0]
-
-        # Begin editing if not already in edit mode.
-        if not layer.isEditable():
-            layer.startEditing()
-
-        # Define the lists of codes.
-        terti_codes = [
-            'St. lemn tip SU', 'St. lemn tip SG', 'St. metalic rotund',
-            'St. octogonal zincat sustinere', 'St. octogonal zincat intindere'
-        ]
-        electrica_codes = [
-            'S 8 - U', 'S 9 - U', 'S 10 - U', 'S 10 - M', 'S 12 - M', 'S 10 - G',
-            'S 11 - G', 'S 12 - G', 'S 13 - G', 'S 14 - G', 'SE 1A', 'SE 2', 'SE 3',
-            'SE 4', 'SE 5', 'SE 6', 'SE 7', 'SE 8', 'SE 9', 'SE 10', 'SE 11',
-            'SC 10001', 'SC 10002', 'SC 10005', 'SC 15004', 'SC 15006', 'SC 15007',
-            'SC 15014-10.5', 'SC 15014', 'SI 9', 'SV 10001', 'SV 10002'
-        ]
-
-        # Process each feature.
-        for feature in layer.getFeatures():
-            desc_value = feature['DESC_CTG_MT_JT']
-            expected_prop = None
-
-            if desc_value in terti_codes:
-                expected_prop = 'TERTI'
-            elif desc_value in electrica_codes:
-                expected_prop = 'ELECTRICA'
-            else:
-                # If the description is not in any known list, skip updating.
-                continue
-
-            # Only update if the current PROP doesn't match the expected value.
-            if feature['PROP'] not in [expected_prop, "TERTI + ELECTRICA(comodat)"]:
-                feature['PROP'] = expected_prop
-                layer.updateFeature(feature)
-
-        # Commit the changes and notify the user.
-        if layer.commitChanges():
-            QMessageBox.information(None, "PROP", "Coloana PROP a fost actualizată cu succes.")
-        else:
-            QMessageBox.critical(None, "PROP", "Eroare la actualizarea coloanei PROP.")
-
-    
-    
- # G.	Verificarea denumirilor strazilor din layerul STALP_JT (layerul din renns va avea denumirea “nr_postale”) - WORKING
     def verify_street_names_poles(self):
         def normalize_text(text):
             replacements = {
@@ -1074,12 +936,20 @@ class DesenAssist:
             for diacritic, replacement in replacements.items():
                 text = text.replace(diacritic, replacement)
             return text.upper()
+        
+        missing_layers = []
+        orig_layer = QgsProject.instance().mapLayersByName('STALP_JT')
+        nr_postale_layer = QgsProject.instance().mapLayersByName('nr_postale')
+        
+        if not orig_layer:
+            missing_layers.append('STALP_JT')
+        if not nr_postale_layer:
+            missing_layers.append('nr_postale')
+            
+        if missing_layers:
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+            return
 
-        # Get original layers
-        orig_layer = QgsProject.instance().mapLayersByName('STALP_JT')[0]
-        nr_postale_layer = QgsProject.instance().mapLayersByName('nr_postale')[0]
-
-        # Create a new memory layer with only one attribute: "STR"
         memory_layer = QgsVectorLayer("Point?crs=EPSG:3844", "STALP_JT_verificare_denum", "memory")
         dp = memory_layer.dataProvider()
         
@@ -1089,15 +959,12 @@ class DesenAssist:
         dp.addAttributes(new_fields)
         memory_layer.updateFields()
 
-        # Build a set of normalized names from the nr_postale layer
         denumire_d_values = set()
         for feature in nr_postale_layer.getFeatures():
             denumire_d = feature['DENUMIRE_D']
             if denumire_d:
                 denumire_d_values.add(normalize_text(denumire_d))
 
-        # Iterate over original features, checking if their normalized STR isn't in the set.
-        # If it isn’t, add a new feature with only the geometry and the normalized STR.
         memory_layer.startEditing()
         for feature in orig_layer.getFeatures():
             str_value = feature['STR']
@@ -1115,10 +982,8 @@ class DesenAssist:
         QgsProject.instance().addMapLayer(memory_layer)
         QgsProject.instance().write()
 
-
-    
-#. H.	Verificarea coloanelor unde campurile sunt obligatorii - WORKING
     def verify_mandatory_columns(self):
+        self.verify_num_columns()
         layers_to_check = {
             "STALP_JT": [
                 "DENUM", "NR_INS_STP", "PROP", "JUD", "PRIM", "LOC", "TIP_STR", "STR", 
@@ -1193,7 +1058,6 @@ class DesenAssist:
         for name, layer in created_layers.items():
             QgsProject.instance().addMapLayer(layer)
 
-# I.	Verificare circuit gresit - WORKING
     def verify_circuit(self):
         tronson_layer_name = "TRONSON_JT"
         tronson_layer = QgsProject.instance().mapLayersByName(tronson_layer_name)
@@ -1240,13 +1104,7 @@ class DesenAssist:
             layer.setRenderer(renderer)
             layer.triggerRepaint()
         
-    def verify_mistakes_complete(self):
-        self.verify_num_columns()
-        self.verify_true_false_columns()
-        self.complete_fields()
-        QMessageBox.information(None, "Verificare coloane", "Verificare finalizată cu succes! S-au verificat coloanele cu valori numerice și booleane.")
-        
-    # J.	Verificare numar coloane
+
     def verify_num_columns(self):
         layers_to_check = {
             "STALP_JT": [
@@ -1258,6 +1116,7 @@ class DesenAssist:
         }
 
         created_layers = {}
+        mistake = False
 
         for layer_name, columns in layers_to_check.items():
             layers = QgsProject.instance().mapLayersByName(layer_name.strip())
@@ -1281,6 +1140,7 @@ class DesenAssist:
                             incorrect_column.add(column)
 
                 if incorrect_column:
+                    mistake = True
                     if not scratch_layer:
                         scratch_layer = self.create_scratch_layer(f"{layer_name}_coloane_gresite_nr", geom_type)
                         created_layers[layer_name] = scratch_layer
@@ -1300,6 +1160,12 @@ class DesenAssist:
         for _, layer in created_layers.items():
             QgsProject.instance().addMapLayer(layer)
             
+        if mistake:
+            QMessageBox.information(None, "STALP_JT", "Unele coloane specificate conțin litere în loc de valori strict numerice. Verifică layerul rezultate.")
+        else:
+            QMessageBox.information(None, "STALP_JT", "Toate coloanele specificate [UZURA_STP, NR_CIR_FO, NR_CIR_LTC, NR_CIR_CATV, NR_CONS_C2S, NR_CONS_C4S, NR_CONS_C2T, NR_CONS_C4T, NR_CONS_C2BR, NR_CONS_C4BR] conțin doar valori numerice.")
+
+            
     def verify_true_false_columns(self):
         columns_to_check = {
             "NR_CIR_FO": "FIB_OPT",
@@ -1307,7 +1173,13 @@ class DesenAssist:
             "NR_CIR_CATV": "CATV",
         }
 
-        layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        layers = QgsProject.instance().mapLayersByName("STALP_JT")
+        
+        if not layers:
+            QMessageBox.warning(None, "Eroare", "Stratul STALP_JT nu a fost găsit.")
+            return
+        
+        layer = layers[0]
 
         if not layer.isEditable():
             layer.startEditing()
@@ -1328,15 +1200,141 @@ class DesenAssist:
                     field_index = layer.fields().indexFromName(bool_field)
                     layer.changeAttributeValue(feature.id(), field_index, new_value)
 
-        layer.commitChanges()
+        if not layer.commitChanges():
+            QMessageBox.critical(None, "FIB_OPT, LTC, CATV - STALP_JT", "Eroare la actualizarea coloanelor FIB_OPT, LTC, CATV.")
         
-    def complete_fields(self):
-        '''
-        STALP_JT
-        > if NR_CIR_FO is completed, PROP_FO = SC RCS&RDS S.A
-        > UZURA_STP = 5 if field is in config.NULL_VALUES
-        '''
-        layer = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+    def update_prop_column(self):
+        """
+        Updates the PROP field in the 'STALP_JT' layer based on the DESC_CTG_MT_JT field.
+        If DESC_CTG_MT_JT is in the terti_codes list, PROP is set to 'TERTI';
+        if it's in the electrica_codes list, PROP is set to 'ELECTRICA'.
+        """
+        layers = QgsProject.instance().mapLayersByName('STALP_JT')
+        if not layers:
+            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
+            return
+        layer = layers[0]
+
+        if not layer.isEditable():
+            layer.startEditing()
+
+        terti_codes = [
+            'St. lemn tip SU', 'St. lemn tip SG', 'St. metalic rotund',
+            'St. octogonal zincat sustinere', 'St. octogonal zincat intindere'
+        ]
+        electrica_codes = [
+            'S 8 - U', 'S 9 - U', 'S 10 - U', 'S 10 - M', 'S 12 - M', 'S 10 - G',
+            'S 11 - G', 'S 12 - G', 'S 13 - G', 'S 14 - G', 'SE 1A', 'SE 2', 'SE 3',
+            'SE 4', 'SE 5', 'SE 6', 'SE 7', 'SE 8', 'SE 9', 'SE 10', 'SE 11',
+            'SC 10001', 'SC 10002', 'SC 10005', 'SC 15004', 'SC 15006', 'SC 15007',
+            'SC 15014-10.5', 'SC 15014', 'SI 9', 'SV 10001', 'SV 10002'
+        ]
+
+        for feature in layer.getFeatures():
+            desc_value = feature['DESC_CTG_MT_JT']
+            expected_prop = None
+
+            if desc_value in terti_codes:
+                expected_prop = 'TERTI'
+            elif desc_value in electrica_codes:
+                expected_prop = 'ELECTRICA'
+            else:
+                # If the description is not in any known list, skip updating.
+                continue
+
+            if feature['PROP'] not in [expected_prop, "TERTI + ELECTRICA(comodat)"]:
+                feature['PROP'] = expected_prop
+                layer.updateFeature(feature)
+
+        if not layer.commitChanges():
+            QMessageBox.critical(None, "PROP - STALP_JT", "Eroare la actualizarea coloanei PROP.")
+        
+    def update_tip_fund(self):
+        layers = QgsProject.instance().mapLayersByName('STALP_JT')
+        if not layers:
+            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
+            return
+        layer = layers[0]
+
+        if not layer.isEditable():
+            layer.startEditing()
+
+        turnata_codes = ["St. lemn tip SU", "Portal", "St. lemn tip SG", "SC 10001", "SC 10002", "SC 10005", "SC 15004", "SC 15006", "SC 15007", "SC 15014-10.5", "SC 15014", "St. metalic rotund", "SE 1A", "SV 10001", "SV 10002", "SE 8", "SE 9", "SE 10", "SE 11"]
+
+        for feature in layer.getFeatures():
+            desc_ctg_mt_jt = feature["DESC_CTG_MT_JT"]
+            
+            if desc_ctg_mt_jt:
+                if desc_ctg_mt_jt in turnata_codes:
+                    layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("TIP_FUND"), "Turnata")
+                else:
+                    layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("TIP_FUND"), "Burata")
+
+        if not layer.commitChanges():
+            QMessageBox.critical(None, "TIP_FUND - STALP_JT", "Eroare la actualizarea coloanei TIP_FUND.")
+        
+
+    def update_branch_fields(self):
+        """
+        Updates the TIP_BR field in the 'BRANS_FIRI_GRPM_JT' layer based on the code in TIP_FIRI_BR.
+        For codes 'FB1', 'FM1', 'BMPM', TIP_BR is set to 'monofazat'.
+        For codes 'FB3', 'FM3', 'BMPT', TIP_BR is set to 'trifazat'.
+        """
+        code_to_branch = {
+            "FB1": "monofazat",
+            "FM1": "monofazat",
+            "BMPM": "monofazat",
+            "FB3": "trifazat",
+            "FM3": "trifazat",
+            "BMPT": "trifazat",
+        }
+        
+        layer_list = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")
+        if not layer_list:
+            QgsMessageLog.logMessage("Layer 'BRANS_FIRI_GRPM_JT' not found.", "DesenAssist", Qgis.Critical)
+            return
+        layer = layer_list[0]
+        
+        if not layer.isEditable():
+            layer.startEditing()
+            
+        vague = False
+        
+        for feature in layer.getFeatures():
+            code = feature["TIP_FIRI_BR"]
+            tip_cond = feature["TIP_COND"]
+            
+            fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4X16", "AFYI 4x16"]
+            fdcp_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "ACBYCY 16/16"]
+            
+            if code in code_to_branch:
+                branch_value = code_to_branch[code]
+            elif tip_cond in fdcs_tip_cond_trifazat and code == "FDCS":
+                branch_value = "trifazat"
+            elif tip_cond in fdcp_tip_cond_trifazat and code == "FDCP":
+                branch_value = "trifazat"
+            else:
+                branch_value = "monofazat"
+                
+            if code == "FDCS" and tip_cond in ["ACYABY 4X16", "ACYABY 4x16"]:
+                vague = True
+            
+            if branch_value:
+                feature["TIP_BR"] = branch_value
+            layer.updateFeature(feature)
+        
+        if layer.commitChanges():
+            if vague:
+                QMessageBox.critical(None, "AVERTIZARE - TIP_BR - BRANS_FIRI_GRPM_JT", "⚠️ A fost găsit un caz special pentru FDCS si ACYABY 4X16! Verifică și completează manual.")
+        else:
+            QMessageBox.critical(None, "TIP_BR - BRANS_FIRI_GRPM_JT", "Eroare la actualizarea campului TIP_BR.")
+            
+    def update_uzu_stp_prop_fo(self):
+        layers = QgsProject.instance().mapLayersByName('STALP_JT')
+        if not layers:
+            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
+            return
+        layer = layers[0]
         
         if not layer.isEditable():
             layer.startEditing()
@@ -1355,7 +1353,8 @@ class DesenAssist:
                 if uzura_stp in config.NULL_VALUES:
                     layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("UZURA_STP"), 5)
                     
-        layer.commitChanges()
+        if not layer.commitChanges():
+            QMessageBox.critical(None, "UZURA_STP si PROP_FO - STALP_JT", "Eroare la actualizarea coloanelor UZURA_STP si PROP_FO.")
             
     def verify_streets(self):
         self.process_layers(self.layers)
