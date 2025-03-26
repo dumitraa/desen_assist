@@ -174,7 +174,6 @@ class DesenAssist:
 
         return action
 
-
     def initGui(self):
         self.toolbar = self.iface.addToolBar('DesenAssist')
         self.toolbar.setObjectName('DesenAssist')
@@ -1089,6 +1088,7 @@ class DesenAssist:
 
     def verify_circuit(self):
         tronson_layer_name = "TRONSON_JT"
+
         tronson_layer = QgsProject.instance().mapLayersByName(tronson_layer_name)
 
         if not tronson_layer:
@@ -1102,12 +1102,29 @@ class DesenAssist:
             'OUTPUT': 'memory:',
         }
         dissolved_layer = processing.run("native:dissolve", dissolve_params)['OUTPUT']
-        
-        dissolved_layer.setName("Verificare_circuite")
-        QgsProject.instance().addMapLayer(dissolved_layer)
-        
-        self.apply_categorization(dissolved_layer, "LINIA_JT")
-        
+
+        buffer_params = {
+            'INPUT': dissolved_layer,
+            'DISTANCE': 0.001,
+            'SEGMENTS': 5,
+            'END_CAP_STYLE': 0,
+            'JOIN_STYLE': 0,
+            'MITER_LIMIT': 2,
+            'DISSOLVE': False,
+            'OUTPUT': 'memory:',
+        }
+        buffered_layer = processing.run("native:buffer", buffer_params)['OUTPUT']
+
+        singlepart_params = {
+            'INPUT': buffered_layer,
+            'OUTPUT': 'memory:',
+        }
+        singlepart_layer = processing.run("native:multiparttosingleparts", singlepart_params)['OUTPUT']
+
+        singlepart_layer.setName("Verificare_circuite")
+
+        QgsProject.instance().addMapLayer(singlepart_layer)
+                
     def apply_categorization(self, layer, field_name):
             unique_values = layer.uniqueValues(layer.fields().lookupField(field_name))
             categories = []
