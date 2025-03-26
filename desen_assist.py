@@ -952,7 +952,7 @@ class DesenAssist:
             }
             for diacritic, replacement in replacements.items():
                 text = text.replace(diacritic, replacement)
-            return text.upper()
+            return text
         
         missing_layers = []
         orig_layer = QgsProject.instance().mapLayersByName('STALP_JT')
@@ -1387,6 +1387,32 @@ class DesenAssist:
             
     def verify_streets(self):
         self.process_layers(self.layers)
+
+        def get_layer(layer_name):
+            layers = QgsProject.instance().mapLayersByName(layer_name)
+            if not layers:
+                QgsMessageLog.logMessage(f"Layer '{layer_name}' not found.", 'DesenAssist', Qgis.Critical)
+                return None
+            return layers[0]
+
+        br_layer = get_layer('BRANS_FIRI_GRPM_JT')
+        st_layer = get_layer('STALP_JT')
+        fb_layer = get_layer('FB pe C LES')
+
+        if not (br_layer and st_layer and fb_layer):
+            return
+
+        for layer in [br_layer, st_layer, fb_layer]:
+            layer.startEditing()
+            for feature in layer.getFeatures():
+                if feature.fields().lookupField("STR") != -1:
+                    street = feature["STR"]
+                    if street:
+                        feature["STR"] = street.strip()
+                        layer.updateFeature(feature)
+                        
+            layer.commitChanges()
+
         dialog = GenerateExcelDialog(self.base_dir)
-        dialog.exec_() 
+        dialog.exec_()
         
