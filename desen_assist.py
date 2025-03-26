@@ -1102,8 +1102,7 @@ class DesenAssist:
             'OUTPUT': 'memory:',
         }
         dissolved_layer = processing.run("native:dissolve", dissolve_params)['OUTPUT']
-        QgsProject.instance().addMapLayer(dissolved_layer)
-
+        
         dissolved_layer.setName("Verificare_circuite")
         QgsProject.instance().addMapLayer(dissolved_layer)
         
