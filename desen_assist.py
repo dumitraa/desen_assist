@@ -197,6 +197,14 @@ class DesenAssist:
                 enabled_flag=False
             ),
             self.add_action(
+                "Separare posturi dupa selectie",
+                text=self.tr(u'Separare posturi dupa selectie'),
+                callback=self.separate_poles_by_selection,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/select.png')),
+                enabled_flag=False
+            ),
+            self.add_action(
                 "Ajustare bransamente la 1m",
                 text=self.tr(u'Ajustare bransamente la 1m'),
                 callback=self.cut_bpmp,
@@ -372,17 +380,13 @@ class DesenAssist:
             str: The full data source path of the layer, including `|layername=`.
                 Returns None if the layer is not found.
         """
-        # Search for the layer by name in the current project
         layers = QgsProject.instance().mapLayersByName(layer_name)
         if not layers:
             return None
         
-        # Get the first matching layer
         layer = layers[0]
-        # Extract the data source path
         data_source = layer.dataProvider().dataSourceUri()
         
-        # Append layername (important for GPKG files with multiple layers)
         if layer.storageType() == "GeoPackage" and "|layername=" not in data_source:
             data_source += f"|layername={layer.name()}"
         
@@ -391,15 +395,13 @@ class DesenAssist:
     def clean_denum(self, denum):
         denum = str(denum)
         if denum:
-            # Extract numeric and alphabetic parts
             match = re.match(r'(\d+)([A-Za-z]*)', denum)
             if match:
-                numeric_part = int(match.group(1))  # Numeric part
-                alpha_part = match.group(2).upper()  # Alphabetic part (uppercased)
+                numeric_part = int(match.group(1))
+                alpha_part = match.group(2).upper()
                 return (numeric_part, alpha_part)
-        return (float('inf'), '')  # Non-matching cases go to the end
+        return (float('inf'), '')
 
-    # Process Layers
     def process_layers(self, layers):
         if not self.processor:
             try:
@@ -583,21 +585,161 @@ class DesenAssist:
                 # Add filtered features to new layer (even if empty)
                 new_layer_data.addFeatures(matching_features)
                 new_layer.updateExtents()
-                
+                                            
                 # Export to GeoPackage
                 output_path = os.path.join(base_dir, f"{layer_name}.gpkg")
                 QgsVectorFileWriter.writeAsVectorFormat(
                     new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
                 )
                 
-                # Add to QGIS and group
-                QgsProject.instance().addMapLayer(new_layer, False)
-                new_group.addLayer(new_layer)
+                permanent_layer = QgsVectorLayer(output_path, layer_name, "ogr")
+                QgsProject.instance().addMapLayer(permanent_layer, False)
+                new_group.addLayer(permanent_layer)
+                
+                if layer_name != "LINIE_JT" and original_layer:
+                    orig_renderer = original_layer.renderer()
+                    if orig_renderer is not None:
+                        permanent_layer.setRenderer(orig_renderer.clone())
+                    else:
+                        print(f"Warning: No renderer found for {layer_name}.")
+
+                    # Clone labeling if enabled and available
+                    if original_layer.labelsEnabled() and original_layer.labeling() is not None:
+                        permanent_layer.setLabeling(original_layer.labeling().clone())
+                        permanent_layer.setLabelsEnabled(True)
+
+                    permanent_layer.triggerRepaint()
             
             QMessageBox.information(None, "Success", "Layerele filtrate au fost salvate cu succes")
             
             if missing_id_bdis:
                 QMessageBox.warning(None, "ID_BDI lipsă în LINIE_JT", f"ID_BDI lipsă în LINIE_JT: {', '.join(missing_id_bdis)}")
+                
+    def separate_poles_by_selection(self):
+        '''
+        based on a selection or a drawn polygon, get all features from the layers and save them in new layers with the same names, saving them to self.base_dir
+        '''
+        
+        layer_names = ["STALP_JT", "BRANS_FIRI_GRPM_JT", "FB pe C LES", "TRONSON_JT"]
+        missing_layers = []
+        
+        for layer_name in layer_names:
+            layer = QgsProject.instance().mapLayersByName(layer_name)
+            if not layer:
+                missing_layers.append(layer_name)
+                
+        if missing_layers:
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+            return
+        
+        layers = {
+            "STALP_JT": QgsProject.instance().mapLayersByName("STALP_JT")[0],
+            "BRANS_FIRI_GRPM_JT": QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0],
+            "FB pe C LES": QgsProject.instance().mapLayersByName("FB pe C LES")[0],
+            "TRONSON_JT": QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
+            }
+
+        # The name we’ll look for/create
+        polygon_layer_name = "poligon"
+
+        polygon_layers = QgsProject.instance().mapLayersByName(polygon_layer_name)
+        polygon_layer = polygon_layers[0] if polygon_layers else None
+
+        if not polygon_layer or polygon_layer.featureCount() == 0:
+            temp_crs = QgsProject.instance().crs()
+            temp_layer = QgsVectorLayer(
+                "Polygon?crs={}".format(temp_crs.authid()), 
+                polygon_layer_name, 
+                "memory"
+            )
+
+            QgsProject.instance().addMapLayer(temp_layer)
+            QMessageBox.information(None, "Poligon", "Deseneaza poligonul pe zona dorita si apoi apasa din nou pe buton.")
+            
+            # make layer editable, enable "add polygon feature" to start drawing immeately
+            temp_layer.startEditing()
+            self.iface.setActiveLayer(temp_layer)
+            self.iface.actionAddFeature().trigger()
+            return
+            
+
+        if polygon_layer.featureCount() != 1:
+            QMessageBox.warning(
+                None,
+                "Poligon invalid",
+                f"Layerul {polygon_layer_name} trebuie să conțină un singur poligon."
+            )
+            return
+
+        polygon_feature = next(polygon_layer.getFeatures())
+        polygon_geom = polygon_feature.geometry()
+        
+        stalp_jt_layer = layers["STALP_JT"]
+        brans_layer = layers["BRANS_FIRI_GRPM_JT"]
+        fb_les_layer = layers["FB pe C LES"]
+        tronson_layer = layers["TRONSON_JT"]
+
+        layers_to_filter = {
+            "STALP_JT": stalp_jt_layer,
+            "BRANS_FIRI_GRPM_JT": brans_layer,
+            "FB pe C LES": fb_les_layer,
+            "TRONSON_JT": tronson_layer
+        }
+
+        base_dir = self.base_dir
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
+
+        root = QgsProject.instance().layerTreeRoot()
+        group_name = f"Date_Filtrate_{polygon_layer_name}"
+        new_group = root.addGroup(group_name)
+
+        for layer_name, original_layer in layers_to_filter.items():
+            geometry_type = QgsWkbTypes.displayString(original_layer.wkbType())
+            crs = original_layer.crs().authid()
+
+            # Create a temporary in-memory layer
+            new_layer = QgsVectorLayer(f"{geometry_type}?crs={crs}", layer_name, "memory")
+            new_layer_data = new_layer.dataProvider()
+            new_layer_data.addAttributes(original_layer.fields())
+            new_layer.updateFields()
+
+            # Filter features intersecting polygon_geom and add them to the temporary layer
+            matching_features = []
+            for feature in original_layer.getFeatures():
+                if feature.geometry() and feature.geometry().intersects(polygon_geom):
+                    matching_features.append(QgsFeature(feature))
+            new_layer_data.addFeatures(matching_features)
+            new_layer.updateExtents()
+
+            # Save the temporary layer to disk (GeoPackage)
+            output_path = os.path.join(base_dir, f"{layer_name}.gpkg")
+            QgsVectorFileWriter.writeAsVectorFormat(
+                new_layer, output_path, "UTF-8", original_layer.crs(), "GPKG"
+            )
+
+            # Load the saved layer as the permanent layer
+            permanent_layer = QgsVectorLayer(output_path, layer_name, "ogr")
+            QgsProject.instance().addMapLayer(permanent_layer, False)
+            new_group.addLayer(permanent_layer)
+            
+            if original_layer:
+                orig_renderer = original_layer.renderer()
+                if orig_renderer is not None:
+                    permanent_layer.setRenderer(orig_renderer.clone())
+                else:
+                    print(f"Warning: No renderer found for {layer_name}.")
+
+                # Clone labeling if enabled and available
+                if original_layer.labelsEnabled() and original_layer.labeling() is not None:
+                    permanent_layer.setLabeling(original_layer.labeling().clone())
+                    permanent_layer.setLabelsEnabled(True)
+
+                permanent_layer.triggerRepaint()
+
+
+        QMessageBox.information(None, "Succes", "Layerele filtrate au fost salvate cu succes.")
+
 
     def complete_fields(self):
         '''
