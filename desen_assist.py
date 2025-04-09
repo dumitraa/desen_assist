@@ -267,6 +267,14 @@ class DesenAssist:
                 parent=self.iface.mainWindow(),
                 icon_path= str(self.plugin_path('icons/excel.png')),
                 enabled_flag=False
+            ),
+            self.add_action(
+                "Verificare vectoriala",
+                text=self.tr(u'Verificare vectoriala'),
+                callback=self.verify_vector,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/vector.png')),
+                enabled_flag=True
             )
         ]
         
@@ -1129,20 +1137,20 @@ class DesenAssist:
 
             scratch_layer = None
             for feature in layer.getFeatures():
+                incomplete_columns = set()
                 if layer_name == "STALP_JT":
-                    incomplete_columns = set()
                     nr_cir_fo_val = feature['NR_CIR_FO']
                     prop_fo_val = feature['PROP_FO']
                     
                     if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
                         incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
-                                
-                    for column in columns:
-                        if column not in [field.name() for field in layer.fields()]:
-                            continue
-                        value = feature[column]
-                        if value in config.NULL_VALUES:
-                            incomplete_columns.add(column)
+                            
+                for column in columns:
+                    if column not in [field.name() for field in layer.fields()]:
+                        continue
+                    value = feature[column]
+                    if value in config.NULL_VALUES:
+                        incomplete_columns.add(column)
                         
                 if incomplete_columns:
                     mistake = True
@@ -1582,3 +1590,19 @@ class DesenAssist:
                 self.tr(u"Lungime TRONSON_JT: {:.2f} km".format(total_length_km))
             )
         
+
+    def verify_vector(self):
+        '''
+        geometry verifications:
+        1.
+            a) if stalp_jt is snapped to tronson_jt or brans grpm... if tip cablu == les (ACYABY4x16) ? ignore
+            b) brans firi grpm not snapped to tronson_jt
+            c) stalp not snapped to anything
+            
+        2.
+        
+        3.
+                
+        4.
+        '''
+        pass
