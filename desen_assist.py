@@ -55,7 +55,8 @@ from qgis.core import ( # type: ignore
     QgsVectorFileWriter,
     QgsVectorLayer,
     QgsWkbTypes,
-    QgsFeatureRequest
+    QgsFeatureRequest,
+    QgsEditFormConfig
 )
 
 # Local imports
@@ -187,6 +188,16 @@ class DesenAssist:
             icon_path= str(self.plugin_path('icons/folder.png')),
             enabled_flag=True
         )
+        
+        self.load_ui_action = self.add_action(
+                "Incarca fisierele .ui",
+                text=self.tr(u'Incarca fisierele .ui'),
+                callback=self.load_ui_files,
+                parent=self.iface.mainWindow(),
+                icon_path = str(self.plugin_path('icons/ui.png')),
+                enabled_flag=True
+            )
+        
         self.actions_to_enable = [
             self.add_action(
                 "Separare posturi dupa ID_BDI",
@@ -396,6 +407,31 @@ class DesenAssist:
         provider.addAttributes(fields)
         layer.updateFields()
         return layer
+
+    def load_ui_files(self):
+        folder_path_ui = self.plugin_path('func', 'templates', 'uis')
+        layers = []
+
+        for filename in os.listdir(folder_path_ui):
+            if filename.endswith('.ui'):
+                ui_file_path = os.path.join(folder_path_ui, filename)
+                layer_name = filename[:-3]
+                layer_list = QgsProject.instance().mapLayersByName(layer_name)
+                if layer_list:
+                    layer = layer_list[0]
+                    # Get current form configuration and set the UI file.
+                    edit_form_config = layer.editFormConfig()
+                    edit_form_config.setUiForm(ui_file_path)
+                    # Omit the setLayout call; QGIS will infer the layout type based on the UI file.
+                    layer.setEditFormConfig(edit_form_config)
+                    layers.append(layer_name)
+                else:
+                    QMessageBox.critical(None, "Eroare", f"Layerul {layer_name} nu a fost găsit în proiect.")
+                    return
+
+        QMessageBox.information(None, "Incarcare UI", f"Stilurile UI pentru layerele {', '.join(layers)} au fost încărcate cu succes.")
+
+        self.load_ui_action.setIcon(QIcon(str(self.plugin_path('icons/ui_done.png'))))
 
     def prepare_and_separate(self):
         success = self.assign_id_bdis(self.layers)
