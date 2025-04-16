@@ -279,14 +279,14 @@ class DesenAssist:
                 icon_path= str(self.plugin_path('icons/excel.png')),
                 enabled_flag=False
             ),
-            self.add_action(
-                "Verificare vectoriala",
-                text=self.tr(u'Verificare vectoriala'),
-                callback=self.verify_vector,
-                parent=self.iface.mainWindow(),
-                icon_path= str(self.plugin_path('icons/vector.png')),
-                enabled_flag=True
-            )
+            # self.add_action(
+            #     "Verificare vectoriala",
+            #     text=self.tr(u'Verificare vectoriala'),
+            #     callback=self.verify_vector,
+            #     parent=self.iface.mainWindow(),
+            #     icon_path= str(self.plugin_path('icons/vector.png')),
+            #     enabled_flag=True
+            # )
         ]
         
         self.action_length = self.add_action(
@@ -1483,6 +1483,8 @@ class DesenAssist:
             fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4X16", "AFYI 4x16"]
             fdcp_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "ACBYCY 16/16"]
             
+            if code in ["FB1", "FB3"]:
+                feature["LIM_PROP"] = "interior"
             if code in code_to_branch:
                 branch_value = code_to_branch[code]
             elif tip_cond in fdcs_tip_cond_trifazat and code == "FDCS":
@@ -1491,7 +1493,7 @@ class DesenAssist:
                 branch_value = "trifazat"
             else:
                 branch_value = "monofazat"
-                
+            
             if code == "FDCS" and tip_cond in ["ACYABY 4X16", "ACYABY 4x16"]:
                 vague = True
             
