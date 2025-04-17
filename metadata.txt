@@ -5,12 +5,12 @@
 [general]
 name=DesenAssist
 qgisMinimumVersion=3.0
-description=Helps in assisting for digitizing utility poles for an internal workflow process
-version=2.5.1
+description=Helps in assisting in digitizing and QC of Low Voltage Underground Utility Poles for an internal workflow process
+version=2.5.2
 author=Ionela
 email=ioneladumitra@yahoo.ro
 
-about=This plugin will mostly be used by an internal company team to digitize utility poles and complete fields for a project. It will likely not be used externally however some code or functions might be useful for other things.
+about=DesenAssist is a QGIS 3 plugin built for a private company internal team to accelerate digitization and quality‑control of low‑voltage underground utility poles and related network features. While the code is public‑facing, it assumes our layer names, field schema and corporate‑wide conventions, so mileage outside the company may vary.
 
 tracker=https://github.com/dumitraa/desen_assist/issues
 repository=https://github.com/dumitraa/desen_assist
