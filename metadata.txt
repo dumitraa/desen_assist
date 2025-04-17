@@ -5,12 +5,12 @@
 [general]
 name=DesenAssist
 qgisMinimumVersion=3.0
-description=Helps in assisting for Desen
+description=Helps in assisting for digitizing utility poles for an internal workflow process
 version=0.1
 author=Ionela
 email=ioneladumitra@yahoo.ro
 
-about=Provide a brief description of the plugin and its purpose.
+about=This plugin will mostly be used by an internal company team to digitize utility poles and complete fields for a project.
 
 tracker=http://bugs
 repository=http://repo

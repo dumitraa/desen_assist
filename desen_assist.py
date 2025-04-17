@@ -422,7 +422,6 @@ class DesenAssist:
                     # Get current form configuration and set the UI file.
                     edit_form_config = layer.editFormConfig()
                     edit_form_config.setUiForm(ui_file_path)
-                    # Omit the setLayout call; QGIS will infer the layout type based on the UI file.
                     layer.setEditFormConfig(edit_form_config)
                     layers.append(layer_name)
                 else:
@@ -475,7 +474,7 @@ class DesenAssist:
         for stalp in stalp_jt_layer.getFeatures():
             intersecting_ids_tr = spatial_index_tr.intersects(stalp.geometry().boundingBox())
             
-            id_bdi_value = None  # Store found ID_BDI
+            id_bdi_value = None
             
             # First, try to get ID_BDI from intersecting TRONSON_JT
             if intersecting_ids_tr:
@@ -628,7 +627,6 @@ class DesenAssist:
             "TRONSON_JT": QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
             }
 
-        # The name we’ll look for/create
         polygon_layer_name = "poligon"
 
         polygon_layers = QgsProject.instance().mapLayersByName(polygon_layer_name)
@@ -758,17 +756,13 @@ class DesenAssist:
         br_field = "TIP_FIRI_BR"
         cond_field = "TIP_COND"
 
-        # Start an edit session on the br_layer if not already in one
         if not br_layer.isEditable():
             br_layer.startEditing()
 
         # Iterate through each feature
         for feat in br_layer.getFeatures():
-            # Apply condition: check if the field value is BMPM or BMPT
-            # and that TIP_COND is not 'ACYABY 4x16'
             if feat[br_field] in ("BMPM", "BMPT", "FDCS", "FDCP") and feat[cond_field] not in ["ACYABY 4X16", "ACYABY 4x16"]:
                 geom = feat.geometry()
-                # Ensure we are dealing with a simple polyline (skip multipart for now)
                 if geom.isMultipart():
                     continue
 
@@ -1145,8 +1139,8 @@ class DesenAssist:
             "TRONSON_JT": [
                 "TIP_TR", "TIP_COND", "fid", "LINIA_JT"],
             "FB pe C LES": [
-                "fid", "DENUM", "TIP_BR", "TIP_COND", "JUD", "PRIM", "LOC", "TIP_STR", 
-                "STR", "NR_IMOB", "SURSA_COORD", "DATA_COORD", "TIP_FIRI_BR", "LINIA_JT"],
+                "fid", "TIP_BR", "TIP_COND", "JUD", "PRIM", "LOC", "TIP_STR", 
+                "STR", "NR_IMOB", "TIP_FIRI_BR", "LINIA_JT"],
             "LINIE_JT": [
                 "ID_BDI", "DENUM"]
         }
@@ -1448,64 +1442,147 @@ class DesenAssist:
 
         if not layer.commitChanges():
             QMessageBox.critical(None, "TIP_FUND - STALP_JT", "Eroare la actualizarea coloanei TIP_FUND.")
-        
 
     def update_branch_fields(self):
         """
-        Updates the TIP_BR field in the 'BRANS_FIRI_GRPM_JT' layer based on the code in TIP_FIRI_BR.
-        For codes 'FB1', 'FM1', 'BMPM', TIP_BR is set to 'monofazat'.
-        For codes 'FB3', 'FM3', 'BMPT', TIP_BR is set to 'trifazat'.
+        Updates the TIP_BR field in the “BRANS_FIRI_GRPM_JT” layer based on TIP_FIRI_BR,
+        validates the result against `links_cond`, and—if mismatches exist—creates a
+        scratch layer called “colerare_gresita_conductor” containing only the offending
+        features with fields fid, TIP_COND, TIP_BR.
         """
-        code_to_branch = {
-            "FB1": "monofazat",
-            "FM1": "monofazat",
-            "BMPM": "monofazat",
-            "FB3": "trifazat",
-            "FM3": "trifazat",
-            "BMPT": "trifazat",
+        links_cond = {
+            'ACBYCY 10/16': {'monofazat': ['FB1', 'BMPM', 'FDCS']},
+            'TYIR 10Al + 16Al': {'monofazat': ['FB1', 'BMPM', 'FDCP', 'FDCS']},
+            'AFYI 16+25': {'monofazat': ['FB1', 'BMPM', 'FDCS']},
+            'Al 16+25': {'monofazat': ['FB1', 'BMPM', 'FDCS']},
+            'TYIR 3x25Al + 16Al': {'trifazat': ['FB3', 'BMPT', 'FDCS']},
+            'AFYI 4x16': {'trifazat': ['FB3', 'BMPT', 'FDCS']},
+            'ACYABY 4x16': {
+                'monofazat': ['BMPM'],
+                'trifazat': ['BMPT', 'FDCS']
+            },
+            'ACBYCY 16/16': {
+                'monofazat': ['FB1', 'BMPM', 'FDCS'],
+                'trifazat': ['FDCP']
+            },
+            'AI 16+25': {'monofazat': ['FB1', 'BMPM', 'FDCS']},
+            'TYIR 16AI + 25AI': {'monofazat': ['FB1', 'BMPM', 'FDCS']}
         }
-        
-        layer_list = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")
+
+        code_to_branch = {
+            'FB1': 'monofazat', 'FM1': 'monofazat', 'BMPM': 'monofazat',
+            'FB3': 'trifazat',  'FM3': 'trifazat',  'BMPT': 'trifazat'
+        }
+
+        fdcs_tip_cond_trifazat = ['TYIR 3X25Al + 16Al', 'AFYI 4X16']
+        fdcp_tip_cond_trifazat = ['TYIR 3X25Al + 16Al', 'ACBYCY 16/16']
+
+        layer_list = QgsProject.instance().mapLayersByName('BRANS_FIRI_GRPM_JT')
         if not layer_list:
-            QgsMessageLog.logMessage("Layer 'BRANS_FIRI_GRPM_JT' not found.", "DesenAssist", Qgis.Critical)
+            QgsMessageLog.logMessage(
+                "Layer 'BRANS_FIRI_GRPM_JT' not found.", 'DesenAssist', Qgis.Critical
+            )
             return
+
         layer = layer_list[0]
-        
         if not layer.isEditable():
             layer.startEditing()
-            
+
         vague = False
-        
+        wrong_features = []      # store ids only
+
         for feature in layer.getFeatures():
-            code = feature["TIP_FIRI_BR"]
-            tip_cond = feature["TIP_COND"]
-            
-            fdcs_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "AFYI 4X16", "AFYI 4x16"]
-            fdcp_tip_cond_trifazat = ["TYIR 3X25Al + 16Al", "ACBYCY 16/16"]
-            
-            if code in ["FB1", "FB3"]:
-                feature["LIM_PROP"] = "interior"
+            code      = feature['TIP_FIRI_BR']
+            tip_cond  = feature['TIP_COND']
+
+            if code in ['FB1', 'FB3']:
+                feature['LIM_PROP'] = 'interior'
+
+            # Decide TIP_BR
             if code in code_to_branch:
                 branch_value = code_to_branch[code]
-            elif tip_cond in fdcs_tip_cond_trifazat and code == "FDCS":
-                branch_value = "trifazat"
-            elif tip_cond in fdcp_tip_cond_trifazat and code == "FDCP":
-                branch_value = "trifazat"
+            elif code == 'FDCS' and tip_cond.upper() in fdcs_tip_cond_trifazat:
+                branch_value = 'trifazat'
+            elif code == 'FDCP' and tip_cond.upper() in fdcp_tip_cond_trifazat:
+                branch_value = 'trifazat'
             else:
-                branch_value = "monofazat"
-            
-            if code == "FDCS" and tip_cond in ["ACYABY 4X16", "ACYABY 4x16"]:
+                branch_value = 'monofazat'
+
+            if code == 'FDCS' and tip_cond.upper() == 'ACYABY 4X16':
                 vague = True
-            
-            if branch_value:
-                feature["TIP_BR"] = branch_value
+
+            feature['TIP_BR'] = branch_value
             layer.updateFeature(feature)
-        
-        if layer.commitChanges():
-            if vague:
-                QMessageBox.critical(None, "AVERTIZARE - TIP_BR - BRANS_FIRI_GRPM_JT", "⚠️ A fost găsit un caz special pentru FDCS si ACYABY 4X16! Verifică și completează manual.")
-        else:
-            QMessageBox.critical(None, "TIP_BR - BRANS_FIRI_GRPM_JT", "Eroare la actualizarea campului TIP_BR.")
+
+            # Validate against links_cond
+            for link, branches_dict in links_cond.items():
+                if tip_cond.upper() == link.upper():
+                    if branch_value in branches_dict:
+                        valid_codes = branches_dict[branch_value]
+                        if code not in valid_codes:
+                            wrong_features.append(feature.id())
+
+        if not layer.commitChanges():
+            QMessageBox.critical(None, 'TIP_BR - BRANS_FIRI_GRPM_JT',
+                                'Eroare la actualizarea campului TIP_BR.')
+            return
+
+        if vague:
+            QMessageBox.critical(
+                None,
+                'AVERTIZARE - TIP_BR - BRANS_FIRI_GRPM_JT',
+                '⚠️ A fost găsit un caz special pentru FDCS și ACYABY 4X16! '
+                'Verifică și completează manual.'
+            )
+
+        if wrong_features:
+            # wipe any old scratch layer with the same name
+            for lyr in QgsProject.instance().mapLayersByName('colerare_gresita_conductor'):
+                QgsProject.instance().removeMapLayer(lyr.id())
+
+            # pick geometry type & CRS identical to source layer
+            geom_map = {
+                QgsWkbTypes.PointGeometry: 'Point',
+                QgsWkbTypes.LineGeometry:  'LineString',
+                QgsWkbTypes.PolygonGeometry: 'Polygon'
+            }
+            geom_str = geom_map.get(layer.geometryType(), 'Unknown')
+            scratch = QgsVectorLayer(
+                f'{geom_str}?crs={layer.crs().authid()}',
+                'Colerare_gresita_conductor',
+                'memory'
+            )
+            pr = scratch.dataProvider()
+            pr.addAttributes([
+                QgsField('fid', QVariant.Int),
+                QgsField('TIP_COND', QVariant.String),
+                QgsField('TIP_FIRI_BR', QVariant.String),
+                QgsField('TIP_BR', QVariant.String)
+            ])
+            scratch.updateFields()
+
+            # copy offending features
+            for fid in wrong_features:
+                orig_feat = layer.getFeature(fid)
+                new_feat = QgsFeature(scratch.fields())
+                new_feat.setGeometry(orig_feat.geometry())
+                new_feat['fid'] = orig_feat.id()
+                new_feat['TIP_COND'] = orig_feat['TIP_COND']
+                new_feat['TIP_FIRI_BR'] = orig_feat['TIP_FIRI_BR']
+                new_feat['TIP_BR'] = orig_feat['TIP_BR']
+                pr.addFeature(new_feat)
+
+            scratch.updateExtents()
+            QgsProject.instance().addMapLayer(scratch)
+
+            self.iface.mapCanvas().refresh()
+
+            QMessageBox.warning(
+                None,
+                'Mismatches found',
+                f'⚠️ Au fost găsite neconcordanțe TIP_COND - TIP_FIRI_BR - TIP_BR\n'
+                'Verifică stratul “Colerare_gresita_conductor”.'
+            )
             
     def update_uzu_stp_prop_fo(self):
         layers = QgsProject.instance().mapLayersByName('STALP_JT')
