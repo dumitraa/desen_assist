@@ -6,7 +6,7 @@
 name=DesenAssist
 qgisMinimumVersion=3.0
 description=Helps in assisting for digitizing utility poles for an internal workflow process
-version=2.5
+version=2.5.1
 author=Ionela
 email=ioneladumitra@yahoo.ro
 
@@ -25,7 +25,7 @@ hasProcessingProvider=no
 # Tags are comma separated with spaces allowed
 tags=python
 
-homepage=https://github.com/dumitraa
+homepage=https://github.com/dumitraa/desen_assist
 category=Plugins
 icon=icon.png
 # experimental flag
