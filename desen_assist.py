@@ -726,16 +726,29 @@ class DesenAssist:
 
 
     def complete_fields(self):
-        '''
-        STALP_JT
-        > if NR_CIR_FO is completed, PROP_FO = SC RCS&RDS S.A
-        > UZURA_STP = 5 if field is in config.NULL_VALUES
-        '''
-        self.update_branch_fields()
-        self.update_prop_column()
-        self.update_tip_fund()
-        self.verify_true_false_columns()
-        self.update_uzu_stp_prop_fo()
+        # verify if the layers are loaded
+        layers = ["STALP_JT", "BRANS_FIRI_GRPM_JT", "FB pe C LES", "TRONSON_JT"]
+        missing_layers = []
+        
+        for layer_name in layers:
+            layer = QgsProject.instance().mapLayersByName(layer_name)
+            if not layer:
+                missing_layers.append(layer_name)
+                
+        if missing_layers:
+            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+            return
+        
+        st = QgsProject.instance().mapLayersByName("STALP_JT")[0]
+        br = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
+        tr = QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
+        
+        self.update_nr_circuite(st, tr, br)
+        self.update_branch_fields(br)
+        self.update_prop_column(st)
+        self.update_tip_fund(st)
+        self.update_true_false_columns(st)
+        self.update_uzu_stp_prop_fo(st)
         
         QMessageBox.information(None, "Completare campuri", "Campurile au fost completate cu succes.")
 
@@ -1333,20 +1346,14 @@ class DesenAssist:
             QMessageBox.information(None, "STALP_JT", "Toate coloanele specificate [UZURA_STP, NR_CIR_FO, NR_CIR_LTC, NR_CIR_CATV, NR_CONS_C2S, NR_CONS_C4S, NR_CONS_C2T, NR_CONS_C4T, NR_CONS_C2BR, NR_CONS_C4BR] conțin doar valori numerice.")
 
             
-    def verify_true_false_columns(self):
+    def update_true_false_columns(self, st):
         columns_to_check = {
             "NR_CIR_FO": "FIB_OPT",
             "NR_CIR_LTC": "LTC",
             "NR_CIR_CATV": "CATV",
         }
 
-        layers = QgsProject.instance().mapLayersByName("STALP_JT")
-        
-        if not layers:
-            QMessageBox.warning(None, "Eroare", "Stratul STALP_JT nu a fost găsit.")
-            return
-        
-        layer = layers[0]
+        layer = st
 
         if not layer.isEditable():
             layer.startEditing()
@@ -1370,17 +1377,13 @@ class DesenAssist:
         if not layer.commitChanges():
             QMessageBox.critical(None, "FIB_OPT, LTC, CATV - STALP_JT", "Eroare la actualizarea coloanelor FIB_OPT, LTC, CATV.")
         
-    def update_prop_column(self):
+    def update_prop_column(self, st):
         """
         Updates the PROP field in the 'STALP_JT' layer based on the DESC_CTG_MT_JT field.
         If DESC_CTG_MT_JT is in the terti_codes list, PROP is set to 'TERTI';
         if it's in the electrica_codes list, PROP is set to 'ELECTRICA'.
         """
-        layers = QgsProject.instance().mapLayersByName('STALP_JT')
-        if not layers:
-            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
-            return
-        layer = layers[0]
+        layer = st
 
         if not layer.isEditable():
             layer.startEditing()
@@ -1416,12 +1419,8 @@ class DesenAssist:
         if not layer.commitChanges():
             QMessageBox.critical(None, "PROP - STALP_JT", "Eroare la actualizarea coloanei PROP.")
         
-    def update_tip_fund(self):
-        layers = QgsProject.instance().mapLayersByName('STALP_JT')
-        if not layers:
-            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
-            return
-        layer = layers[0]
+    def update_tip_fund(self, st):
+        layer = st
 
         if not layer.isEditable():
             layer.startEditing()
@@ -1440,7 +1439,18 @@ class DesenAssist:
         if not layer.commitChanges():
             QMessageBox.critical(None, "TIP_FUND - STALP_JT", "Eroare la actualizarea coloanei TIP_FUND.")
 
-    def update_branch_fields(self):
+    def update_nr_circuite(self, st, tr, br):
+        #TODO: 
+        '''
+        - STALP_JT > TRONSON_JT = nr. circuite = nr. de tronsoane care intersecteaza stalpul
+        >> daca are inclus "IL", sa fie nr circuite + 1
+
+        - STALP_JT > BRANS_FIRI_GRPM_JT = nr. circuite = nr. de bransamente care intersecteaza stalpul
+        >> daca tip circuit "BR+IL", tip circuit == 2
+        '''
+        pass
+    
+    def update_branch_fields(self, br):
         """
         Updates the TIP_BR field in the “BRANS_FIRI_GRPM_JT” layer based on TIP_FIRI_BR,
         validates the result against `links_cond`, and—if mismatches exist—creates a
@@ -1474,14 +1484,7 @@ class DesenAssist:
         fdcs_tip_cond_trifazat = ['TYIR 3X25Al + 16Al', 'AFYI 4X16']
         fdcp_tip_cond_trifazat = ['TYIR 3X25Al + 16Al', 'ACBYCY 16/16']
 
-        layer_list = QgsProject.instance().mapLayersByName('BRANS_FIRI_GRPM_JT')
-        if not layer_list:
-            QgsMessageLog.logMessage(
-                "Layer 'BRANS_FIRI_GRPM_JT' not found.", 'DesenAssist', Qgis.Critical
-            )
-            return
-
-        layer = layer_list[0]
+        layer = br
         if not layer.isEditable():
             layer.startEditing()
 
@@ -1581,12 +1584,8 @@ class DesenAssist:
                 'Verifică stratul “Colerare_gresita_conductor”.'
             )
             
-    def update_uzu_stp_prop_fo(self):
-        layers = QgsProject.instance().mapLayersByName('STALP_JT')
-        if not layers:
-            QgsMessageLog.logMessage("Layer 'STALP_JT' not found.", 'DesenAssist', Qgis.Critical)
-            return
-        layer = layers[0]
+    def update_uzu_stp_prop_fo(self, st):
+        layer = st
         
         if not layer.isEditable():
             layer.startEditing()
@@ -1705,16 +1704,23 @@ class DesenAssist:
 
     def verify_vector(self):
         '''
-        geometry verifications:
-        1.
-            a) if stalp_jt is snapped to tronson_jt or brans grpm... if tip cablu == les (ACYABY4x16) ? ignore
-            b) brans firi grpm not snapped to tronson_jt
-            c) stalp not snapped to anything
-            
-        2.
+        Verifies the geometry and fields
+        Adds temporary layers with the mistakes: point, line
+        STALP_JT - point layer
+        BRANS_FIRI_GRPM_JT - line layer
+        TRONSON_JT - line layer
         
-        3.
+        fields: NUME_LAYER, FID, TIP_EROARE, DETALII
+        
+        1. STALP_JT has to be snapped to TRONSON_JT or BRANS_FIRI_GRPM_JT; no feature from any layer left in the air
+            
+        2. STALP_JT ce se intersecteaza cu BRANS_FIRI_GRPM_JT = "BR" trebuie sa fie inclus la TIP_CIR, else error (+ vice versa - daca exista BR dar nu se intersecteaza cu BRANS_FIRI_GRPM_JT - eroare)
+        
+        3. STALP_JT ce se se intersecteaza cu TRONSON_JT + DENUM fara litere = "JT" trebuie sa fie inclus la Tip Circuit, else error (+ vice versa - daca exista JT dar nu se intersecteaza cu TRONSON_JT - eroare)
                 
-        4.
+        4. STALP_JT (snapped to BRANS_FIRI_GRPM_JT) terminal = orice este cu litere la DENUM si la TIP_LEG_JT == t sa dea eroare
+        
+        5. La capat de TRONSON_JT (daca tronsonul nu e legat de altul) - ultimele STALP_JT trebuie sa aiba TIP_LEG_JT "t" sau "t/d"
+        
         '''
         pass
