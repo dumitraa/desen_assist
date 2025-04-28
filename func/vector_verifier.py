@@ -272,7 +272,7 @@ class VectorVerifier:
             if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
                 self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
                                     "Terminal BR greșit",
-                                    "STÂLP terminal pe BRANS cu litere în DENUM și TIP_LEG_JT = t / t/d")
+                                    "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
 
     @staticmethod
     def _contains_letters(val) -> bool:
@@ -284,7 +284,8 @@ class VectorVerifier:
     def _rule5_terminal_tronson(self):
         allowed_cond = {
             "tyir 16al + 25al",          # normalise to lower case once
-            "tyir 3x25al + 16al"
+            "tyir 3x25al + 16al",
+            "tyir 2x25al"
         }
 
         # ---------- 1. catalogue every endpoint and its conductor type -----------

@@ -1396,7 +1396,7 @@ class DesenAssist:
             'S 11 - G', 'S 12 - G', 'S 13 - G', 'S 14 - G', 'SE 1A', 'SE 2', 'SE 3',
             'SE 4', 'SE 5', 'SE 6', 'SE 7', 'SE 8', 'SE 9', 'SE 10', 'SE 11',
             'SC 10001', 'SC 10002', 'SC 10005', 'SC 15004', 'SC 15006', 'SC 15007',
-            'SC 15014-10.5', 'SC 15014', 'SI 9', 'SV 10001', 'SV 10002'
+            'SC 15014-10.5', 'SC 15014', 'SI 9', 'SV 10001', 'SV 10002', 'Portal'
         ]
 
         for feature in layer.getFeatures():
@@ -1786,10 +1786,11 @@ class DesenAssist:
         '''
         try:
             VectorVerifier().verify()        # run the whole check
-            self.iface.messageBar().pushSuccess(
-                "Verificare vectorială",
-                "Terminată – au fost adăugate 'erori_stalp' și 'erori_brans_tronson'."
+            QMessageBox.information(
+                None, "Verificare vectorială",
+                "Verificarea vectorială a fost finalizată cu succes!"
             )
+            
         except Exception as e:
             # surfaces any missing fields, layer-name typos, etc.
             self.iface.messageBar().pushCritical("Verificare vectorială", str(e))
