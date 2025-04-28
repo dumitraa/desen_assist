@@ -32,8 +32,31 @@ class HelperBase:
             layers[layer_name] = layer  # Add the layer if found, else None
 
         return layers
+    
+    def add_layer_to_de_verificat(self, layer):
+        """
+        Add `layer` to a layer-tree group named `group_name` (default: “DE_VERIFICAT”).
+        • If the group doesn't exist, it's created at the root level.
+        • If the layer already sits somewhere else in the tree, it's moved (not duplicated).
+        """
+        for lyr in QgsProject.instance().mapLayersByName(layer.name()):
+                QgsProject.instance().removeMapLayer(lyr.id())
+        
+        group_name = "DE_VERIFICAT"
+        project = QgsProject.instance()
+        root    = project.layerTreeRoot()
 
+        # --- find or create the target group ---
+        group = root.findGroup(group_name)
+        if group is None:
+            group = root.addGroup(group_name)
 
+        project.addMapLayer(layer, False)
+        group.addLayer(layer)
+
+        layer.triggerRepaint()
+
+    
     def add_layer_to_project(self, layer_path):
         try:
             # Get the name of the layer without the file extension and the full path

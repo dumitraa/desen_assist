@@ -60,6 +60,7 @@ from qgis.core import ( # type: ignore
 from . import config
 from .func.generate_excel import GenerateExcelDialog
 from .func.helper_functions import HelperBase, SHPProcessor
+from .func.vector_verifier import VectorVerifier
 from .resources import *
 
 
@@ -276,14 +277,14 @@ class DesenAssist:
                 icon_path= str(self.plugin_path('icons/excel.png')),
                 enabled_flag=False
             ),
-            # self.add_action(
-            #     "Verificare vectoriala",
-            #     text=self.tr(u'Verificare vectoriala'),
-            #     callback=self.verify_vector,
-            #     parent=self.iface.mainWindow(),
-            #     icon_path= str(self.plugin_path('icons/vector.png')),
-            #     enabled_flag=True
-            # )
+            self.add_action(
+                "Verificare vectoriala",
+                text=self.tr(u'Verificare vectoriala'),
+                callback=self.verify_vector,
+                parent=self.iface.mainWindow(),
+                icon_path= str(self.plugin_path('icons/vector.png')),
+                enabled_flag=True
+            )
         ]
         
         self.action_length = self.add_action(
@@ -866,13 +867,11 @@ class DesenAssist:
             new_feature["DENUM"] = feature["DENUM"]
             new_feature["MATCH_STATUS"] = "Da" if idx == int(feature["DENUM"]) else "Nu"
             
-            QgsMessageLog.logMessage(f"Feature {feature.id()} - idx {idx} with {feature['DENUM']} - {new_feature['MATCH_STATUS']}", "DesenAssist", Qgis.Info)
-
             scratch_layer_data.addFeature(new_feature)
 
 
         # Add the scratch layer to the project
-        QgsProject.instance().addMapLayer(scratch_layer)
+        self.helper.add_layer_to_de_verificat(scratch_layer)
 
     def verify_br(self):
         original_layers = QgsProject.instance().mapLayersByName("STALP_JT")
@@ -926,7 +925,7 @@ class DesenAssist:
             scratch_layer_data.addFeature(new_feature)
 
         # Add the scratch layer to the project
-        QgsProject.instance().addMapLayer(scratch_layer)
+        self.helper.add_layer_to_de_verificat(scratch_layer)
 
 
 # C.	Coloana “linie jt” sa fie la fel la bransament si la tronson - WORKING
@@ -993,7 +992,7 @@ class DesenAssist:
             
             scratch_layer.dataProvider().addFeatures(mismatches)
             scratch_layer.commitChanges()
-            QgsProject.instance().addMapLayer(scratch_layer)
+            self.helper.add_layer_to_de_verificat(scratch_layer)
             
             QMessageBox.information(None, "LINIA_JT", 
                 "Au fost gasite linii JT cu valori diferite intre BRANS_FIRI_GRPM_JT si TRONSON_JT.")
@@ -1071,7 +1070,7 @@ class DesenAssist:
             non_match_dp.addFeatures(diff_features)
             non_match_layer.updateExtents()
 
-            QgsProject.instance().addMapLayer(non_match_layer)
+            self.helper.add_layer_to_de_verificat(non_match_layer)
 
         except Exception as e:
             QgsMessageLog.logMessage(f"An error occurred: {e}", 'DesenAssist', Qgis.Critical)
@@ -1133,7 +1132,7 @@ class DesenAssist:
                     dp.addFeatures([new_feat])
         memory_layer.commitChanges()
 
-        QgsProject.instance().addMapLayer(memory_layer)
+        self.helper.add_layer_to_de_verificat(memory_layer)
         QgsProject.instance().write()
 
     def verify_mandatory_columns(self):
@@ -1258,7 +1257,7 @@ class DesenAssist:
 
         singlepart_layer.setName("Verificare_circuite")
 
-        QgsProject.instance().addMapLayer(singlepart_layer)
+        self.helper.add_layer_to_de_verificat(singlepart_layer)
                 
     def apply_categorization(self, layer, field_name):
             unique_values = layer.uniqueValues(layer.fields().lookupField(field_name))
@@ -1438,23 +1437,85 @@ class DesenAssist:
 
         if not layer.commitChanges():
             QMessageBox.critical(None, "TIP_FUND - STALP_JT", "Eroare la actualizarea coloanei TIP_FUND.")
+            
+    def update_nr_circuite(self, st_layer, tr_layer, br_layer):
+        """
+        Updates STALP_JT.NR_CIR these rules:
 
-    def update_nr_circuite(self, st, tr, br):
-        #TODO: 
-        '''
-        - STALP_JT > TRONSON_JT = nr. circuite = nr. de tronsoane care intersecteaza stalpul
-        >> daca are inclus "IL", sa fie nr circuite + 1
+        • NR_CIR = # TRONSON_JT that touch the pole
+            › ignore branches entirely in this case.
 
-        - STALP_JT > BRANS_FIRI_GRPM_JT = nr. circuite = nr. de bransamente care intersecteaza stalpul
-        >> daca tip circuit "BR+IL", tip circuit == 2
-        '''
-        pass
+        • If no tronson touch but ≥1 branch does,
+            NR_CIR = 1  (constant).
+
+        • In either case, if pole.TIP_CIR contains 'IL' (case-insensitive) add +1.
+        """
+
+        # Build spatial indices once
+        tr_index = QgsSpatialIndex(tr_layer.getFeatures())
+        br_index = QgsSpatialIndex(br_layer.getFeatures())
+
+        # Field indexes on STALP_JT
+        idx_nr  = st_layer.fields().indexFromName("NR_CIR")
+        idx_tip = st_layer.fields().indexFromName("TIP_CIR")
+        if idx_nr == -1 or idx_tip == -1:
+            raise ValueError("STALP_JT is missing NR_CIR or TIP_CIR")
+
+        # ---- Edit-session handling ----
+        started_edit = False
+        if not st_layer.isEditable():
+            started_edit = st_layer.startEditing()
+            if not started_edit:
+                raise RuntimeError("Could not start editing STALP_JT")
+
+        try:
+            for pole in st_layer.getFeatures():
+                geom_pole = pole.geometry()
+                tip_cir   = (pole[idx_tip] or "").upper()
+
+                # ---------- TRONSON first ----------
+                tr_ids = tr_index.intersects(geom_pole.boundingBox())
+                tr_cnt = sum(
+                    1 for fid in tr_ids
+                    if tr_layer.getFeature(fid).geometry().intersects(geom_pole)
+                )
+                QgsMessageLog.logMessage(
+                    f"Pole {pole.id()} – TRONSON count: {tr_cnt}", "DesenAssist", Qgis.Info
+                )
+
+                if tr_cnt:                     # at least one tronson
+                    nr_cir = tr_cnt
+                else:
+                    # ---------- BRANS fallback ----------
+                    br_ids = br_index.intersects(geom_pole.boundingBox())
+                    has_branch = any(
+                        br_layer.getFeature(fid).geometry().intersects(geom_pole)
+                        for fid in br_ids
+                    )
+                    nr_cir = 1 if has_branch else 0
+
+                # -------- IL bump --------
+                if "IL" in tip_cir:
+                    nr_cir += 1
+
+                pole[idx_nr] = nr_cir
+                st_layer.updateFeature(pole)
+
+        finally:
+            # Commit only if we started the edit session
+            if started_edit:
+                if not st_layer.commitChanges():
+                    st_layer.rollBack()
+                    QMessageBox.critical(
+                        None, "NR_CIR - STALP_JT",
+                        "Eroare la actualizarea coloanei NR_CIR."
+                    )
     
     def update_branch_fields(self, br):
         """
         Updates the TIP_BR field in the “BRANS_FIRI_GRPM_JT” layer based on TIP_FIRI_BR,
         validates the result against `links_cond`, and—if mismatches exist—creates a
-        scratch layer called “colerare_gresita_conductor” containing only the offending
+        scratch layer called “corelare_gresita_conductor” containing only the offending
         features with fields fid, TIP_COND, TIP_BR.
         """
         links_cond = {
@@ -1537,7 +1598,7 @@ class DesenAssist:
 
         if wrong_features:
             # wipe any old scratch layer with the same name
-            for lyr in QgsProject.instance().mapLayersByName('colerare_gresita_conductor'):
+            for lyr in QgsProject.instance().mapLayersByName('Corelare_gresita_conductor'):
                 QgsProject.instance().removeMapLayer(lyr.id())
 
             # pick geometry type & CRS identical to source layer
@@ -1549,7 +1610,7 @@ class DesenAssist:
             geom_str = geom_map.get(layer.geometryType(), 'Unknown')
             scratch = QgsVectorLayer(
                 f'{geom_str}?crs={layer.crs().authid()}',
-                'Colerare_gresita_conductor',
+                'Corelare_gresita_conductor',
                 'memory'
             )
             pr = scratch.dataProvider()
@@ -1573,7 +1634,7 @@ class DesenAssist:
                 pr.addFeature(new_feat)
 
             scratch.updateExtents()
-            QgsProject.instance().addMapLayer(scratch)
+            self.helper.add_layer_to_de_verificat(scratch)
 
             self.iface.mapCanvas().refresh()
 
@@ -1581,7 +1642,7 @@ class DesenAssist:
                 None,
                 'Mismatches found',
                 f'⚠️ Au fost găsite neconcordanțe TIP_COND - TIP_FIRI_BR - TIP_BR\n'
-                'Verifică stratul “Colerare_gresita_conductor”.'
+                'Verifică stratul “Corelare_gresita_conductor”.'
             )
             
     def update_uzu_stp_prop_fo(self, st):
@@ -1723,4 +1784,14 @@ class DesenAssist:
         5. La capat de TRONSON_JT (daca tronsonul nu e legat de altul) - ultimele STALP_JT trebuie sa aiba TIP_LEG_JT "t" sau "t/d"
         
         '''
+        try:
+            VectorVerifier().verify()        # run the whole check
+            self.iface.messageBar().pushSuccess(
+                "Verificare vectorială",
+                "Terminată – au fost adăugate 'erori_stalp' și 'erori_brans_tronson'."
+            )
+        except Exception as e:
+            # surfaces any missing fields, layer-name typos, etc.
+            self.iface.messageBar().pushCritical("Verificare vectorială", str(e))
+
         pass
