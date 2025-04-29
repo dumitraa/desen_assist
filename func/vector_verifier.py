@@ -72,7 +72,7 @@ class VectorVerifier:
         self._rule1_snapping()
         self._rule2_tip_cir_br()
         self._rule3_tip_cir_jt()
-        # self._rule4_terminal_br()
+        self._rule4_terminal_br()
         self._rule5_terminal_tronson()
         self._rule6_intindere()
         self._rule7_rupere_cond()
@@ -252,34 +252,34 @@ class VectorVerifier:
     def _denum_is_numeric(value) -> bool:
         return str(value).isalnum() and not any(ch.isalpha() for ch in str(value))
 
-    # # ------------------------------------------------------------------
-    # #  RULE 4 – terminal BRANS endpoints & TIP_LEG_JT
-    # # ------------------------------------------------------------------
-    # def _rule4_terminal_br(self):
-    #     # Determine BRANS endpoints that are not shared with another line
-    #     end_pts = {}
-    #     for feat in self._brans.getFeatures():
-    #         geom = feat.geometry()
-    #         start_pt = QgsPointXY(geom.constGet().pointN(0))
-    #         end_pt = QgsPointXY(geom.constGet().pointN(geom.constGet().numPoints() - 1))
-    #         for p in (start_pt, end_pt):
-    #             key = (round(p.x(), 6), round(p.y(), 6))
-    #             end_pts[key] = end_pts.get(key, 0) + 1
+    # ------------------------------------------------------------------
+    #  RULE 4 – terminal BRANS endpoints & TIP_LEG_JT
+    # ------------------------------------------------------------------
+    def _rule4_terminal_br(self):
+        # Determine BRANS endpoints that are not shared with another line
+        end_pts = {}
+        for feat in self._brans.getFeatures():
+            geom = feat.geometry()
+            start_pt = QgsPointXY(geom.constGet().pointN(0))
+            end_pt = QgsPointXY(geom.constGet().pointN(geom.constGet().numPoints() - 1))
+            for p in (start_pt, end_pt):
+                key = (round(p.x(), 6), round(p.y(), 6))
+                end_pts[key] = end_pts.get(key, 0) + 1
 
-    #     terminal_coords = {k for k, v in end_pts.items() if v == 1}  # degree 1 -> terminal
+        terminal_coords = {k for k, v in end_pts.items() if v == 1}  # degree 1 -> terminal
 
-    #     for feat in self._stalp.getFeatures():
-    #         pt = feat.geometry().asPoint()
-    #         snapped_to_terminal_br = False
-    #         for coord in terminal_coords:
-    #             term_pt = QgsPointXY(*coord)
-    #             if QgsGeometry.fromPointXY(term_pt).distance(QgsGeometry.fromPointXY(pt)) <= self._tol:
-    #                 snapped_to_terminal_br = True
-    #                 break
-    #         if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
-    #             self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
-    #                                 "Terminal BR greșit",
-    #                                 "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
+        for feat in self._stalp.getFeatures():
+            pt = feat.geometry().asPoint()
+            snapped_to_terminal_br = False
+            for coord in terminal_coords:
+                term_pt = QgsPointXY(*coord)
+                if QgsGeometry.fromPointXY(term_pt).distance(QgsGeometry.fromPointXY(pt)) <= self._tol:
+                    snapped_to_terminal_br = True
+                    break
+            if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
+                self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
+                                    "Terminal BR greșit",
+                                    "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
 
     @staticmethod
     def _contains_letters(val) -> bool:
