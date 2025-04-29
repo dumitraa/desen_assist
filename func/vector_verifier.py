@@ -8,7 +8,12 @@ from qgis.core import ( # type: ignore
     QgsPointXY,
     QgsSpatialIndex,
     QgsWkbTypes,
+    QgsMessageLog,
+    Qgis,
+    QgsProcessing,
 )
+import processing # type: ignore
+
 from qgis.PyQt.QtCore import QVariant # type: ignore
 
 from .helper_functions import HelperBase
@@ -67,8 +72,10 @@ class VectorVerifier:
         self._rule1_snapping()
         self._rule2_tip_cir_br()
         self._rule3_tip_cir_jt()
-        self._rule4_terminal_br()
+        # self._rule4_terminal_br()
         self._rule5_terminal_tronson()
+        self._rule6_intindere()
+        self._rule7_rupere_cond()
 
         # Commit & add layers to the project
         self._erori_stalp.commitChanges()
@@ -173,17 +180,18 @@ class VectorVerifier:
 
         # ---------------- 2. each BRANS must snap to at least one STALP ----------
         for feat in self._brans.getFeatures():
-            snapped = False
-            for v in _vertices(feat.geometry()):
-                if any(self._nearest_lines(v, self._idx_stalp, self._stalp)):
-                    snapped = True
-                    break                        # one hit is enough
-            if not snapped:
-                self._add_err_line(
-                    feat.geometry(), "BRANS_FIRI_GRPM_JT", feat.id(),
-                    "BRANS fără legătură",
-                    "Nu este ‘snapped’ la STALP_JT"
-                )
+            if feat["TIP_COND"].upper() != "ACYABY 4x16":
+                snapped = False
+                for v in _vertices(feat.geometry()):
+                    if any(self._nearest_lines(v, self._idx_stalp, self._stalp)):
+                        snapped = True
+                        break                        # one hit is enough
+                if not snapped:
+                    self._add_err_line(
+                        feat.geometry(), "BRANS_FIRI_GRPM_JT", feat.id(),
+                        "BRANS fără legătură",
+                        "Nu este ‘snapped’ la STALP_JT"
+                    )
 
         # ---------------- 3. each TRONSON must snap to at least one STALP -------
         for feat in self._tronson.getFeatures():
@@ -198,7 +206,6 @@ class VectorVerifier:
                     "TRONSON fără legătură",
                     "Nu este ‘snapped’ la STALP_JT"
                 )
-
 
 
     # ------------------------------------------------------------------
@@ -245,34 +252,34 @@ class VectorVerifier:
     def _denum_is_numeric(value) -> bool:
         return str(value).isalnum() and not any(ch.isalpha() for ch in str(value))
 
-    # ------------------------------------------------------------------
-    #  RULE 4 – terminal BRANS endpoints & TIP_LEG_JT
-    # ------------------------------------------------------------------
-    def _rule4_terminal_br(self):
-        # Determine BRANS endpoints that are not shared with another line
-        end_pts = {}
-        for feat in self._brans.getFeatures():
-            geom = feat.geometry()
-            start_pt = QgsPointXY(geom.constGet().pointN(0))
-            end_pt = QgsPointXY(geom.constGet().pointN(geom.constGet().numPoints() - 1))
-            for p in (start_pt, end_pt):
-                key = (round(p.x(), 6), round(p.y(), 6))
-                end_pts[key] = end_pts.get(key, 0) + 1
+    # # ------------------------------------------------------------------
+    # #  RULE 4 – terminal BRANS endpoints & TIP_LEG_JT
+    # # ------------------------------------------------------------------
+    # def _rule4_terminal_br(self):
+    #     # Determine BRANS endpoints that are not shared with another line
+    #     end_pts = {}
+    #     for feat in self._brans.getFeatures():
+    #         geom = feat.geometry()
+    #         start_pt = QgsPointXY(geom.constGet().pointN(0))
+    #         end_pt = QgsPointXY(geom.constGet().pointN(geom.constGet().numPoints() - 1))
+    #         for p in (start_pt, end_pt):
+    #             key = (round(p.x(), 6), round(p.y(), 6))
+    #             end_pts[key] = end_pts.get(key, 0) + 1
 
-        terminal_coords = {k for k, v in end_pts.items() if v == 1}  # degree 1 -> terminal
+    #     terminal_coords = {k for k, v in end_pts.items() if v == 1}  # degree 1 -> terminal
 
-        for feat in self._stalp.getFeatures():
-            pt = feat.geometry().asPoint()
-            snapped_to_terminal_br = False
-            for coord in terminal_coords:
-                term_pt = QgsPointXY(*coord)
-                if QgsGeometry.fromPointXY(term_pt).distance(QgsGeometry.fromPointXY(pt)) <= self._tol:
-                    snapped_to_terminal_br = True
-                    break
-            if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
-                self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
-                                    "Terminal BR greșit",
-                                    "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
+    #     for feat in self._stalp.getFeatures():
+    #         pt = feat.geometry().asPoint()
+    #         snapped_to_terminal_br = False
+    #         for coord in terminal_coords:
+    #             term_pt = QgsPointXY(*coord)
+    #             if QgsGeometry.fromPointXY(term_pt).distance(QgsGeometry.fromPointXY(pt)) <= self._tol:
+    #                 snapped_to_terminal_br = True
+    #                 break
+    #         if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
+    #             self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
+    #                                 "Terminal BR greșit",
+    #                                 "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
 
     @staticmethod
     def _contains_letters(val) -> bool:
@@ -333,12 +340,79 @@ class VectorVerifier:
             tip_leg   = str(stalp_feat["TIP_LEG_JT"]).strip().lower()
             cond_list = end_cond_types.get(coord, [])
 
-            # ---- 3. raise only if TIP_LEG is bad *and* no conductor is allowed --
+            # ---- 3. raise only if TIP_LEG is bad and no conductor is allowed --
             if tip_leg not in ("t", "t/d") and all(c not in allowed_cond for c in cond_list):
                 self._add_err_point(
                     stalp_feat.geometry(), "STALP_JT", stalp_feat.id(),
                     "STÂLP final fără TIP_LEG adecvat",
                     f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-                    f"Valoare actuală: `{tip_leg}`"
+                    f"Valoare actuală: `{tip_leg.strip()}`. "
                 )
+
+    # ------------------------------------------------------------------
+    #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT
+    # ------------------------------------------------------------------
+    def _rule6_intindere(self):
+        for feat in self._stalp.getFeatures():
+            pt = feat.geometry().asPoint()
+            # count how many tronson features touch this pole
+            intersecting_trons = [tr for tr in self._nearest_lines(pt, self._idx_tronson, self._tronson)]
+            if len(intersecting_trons) > 2:
+                tip_leg = str(feat["TIP_LEG_JT"] or "").lower().strip()
+                if tip_leg not in ("ic", "ic/d"):
+                    self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
+                                        "Întindere fără IC",
+                                        f"STÂLP cu >2 TRONSON_JT dar TIP_LEG_JT ≠ ‘ic’/‘ic/d’. Valoare actuală: `{tip_leg.strip()}`")
+                    
+                    
+    # ------------------------------------------------------------------
+    #  RULE 7 – Rupere conductor via processing model
+    # ------------------------------------------------------------------
+    def _rule7_rupere_cond(self):
+        """Runs the *1.2.RUPERE__CONDUCTOR* model and folds its two outputs straight
+        into the existing error layers instead of adding separate ones.
+
+        Assumptions
+        -----------
+        • The model outputs *conductorul_nu_e_rupt*   (Point layer)
+        •                 and *conductorul_nu_e_rupt_la_cs* (Line layer).
+        • Each output carries an **FID** attribute back‑linking to the source feature.
+        • A point record signals a *conductor rupture at pole*;  a line record signals
+          *conductor rupture on tronson* – both are considered errors.
+        """
+        params = {
+            "linia_jt": "CIRCUIT 1",
+            "stalpi": self._stalp,
+            "tronson": self._tronson,
+            "conductorul_nu_e_rupt": QgsProcessing.TEMPORARY_OUTPUT,
+            "conductorul_nu_e_rupt_la_cs": QgsProcessing.TEMPORARY_OUTPUT,
+        }
+        try:
+            result = processing.run("model:1.2.RUPERE__CONDUCTOR", params)
+        except Exception as e:
+            QgsMessageLog.logMessage(f"Model RUPERE_CONDUCTOR failed: {e}", "VectorVerifier", level=Qgis.Critical)
+            return
+
+        # ---- Point output -> erori_stalp ----------------------------------
+        pt_layer = result.get("conductorul_nu_e_rupt")
+        if isinstance(pt_layer, QgsVectorLayer):
+            for f in pt_layer.getFeatures():
+                fid_link = f["FID"] if "FID" in pt_layer.fields().names() else f.id()
+                self._add_err_point(f.geometry(), "STALP_JT", fid_link,
+                                    "Rupere conductor",
+                                    "Conductor nu e rupt/întrerupt în dreptul stâlpului")
+        else:
+            QgsMessageLog.logMessage("Output 'conductorul_nu_e_rupt' is not a vector layer", "VectorVerifier", level=Qgis.Warning)
+
+        # ---- Line output -> erori_brans_tronson ---------------------------
+        line_layer = result.get("conductorul_nu_e_rupt_la_cs")
+        if isinstance(line_layer, QgsVectorLayer):
+            for f in line_layer.getFeatures():
+                fid_link = f["FID"] if "FID" in line_layer.fields().names() else f.id()
+                self._add_err_line(f.geometry(), "TRONSON_JT", fid_link,
+                                   "Rupere conductor",
+                                   "Conductor nu e rupt/întrerupt pe tronson")
+        else:
+            QgsMessageLog.logMessage("Output 'conductorul_nu_e_rupt_la_cs' is not a vector layer", "VectorVerifier", level=Qgis.Warning)
+
 
