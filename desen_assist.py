@@ -1785,7 +1785,8 @@ class DesenAssist:
         
         '''
         try:
-            VectorVerifier().verify()        # run the whole check
+            verifier = VectorVerifier(self.iface)
+            verifier.verify()        # run the whole check
             QMessageBox.information(
                 None, "Verificare vectorială",
                 "Verificarea vectorială a fost finalizată cu succes!"

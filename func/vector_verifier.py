@@ -10,11 +10,13 @@ from qgis.core import ( # type: ignore
     QgsWkbTypes,
     QgsMessageLog,
     Qgis,
-    QgsProcessing,
+    QgsProcessing
 )
+
 import processing # type: ignore
 
 from qgis.PyQt.QtCore import QVariant # type: ignore
+from qgis.PyQt.QtWidgets import QInputDialog # type: ignore
 
 from .helper_functions import HelperBase
 
@@ -28,6 +30,9 @@ class VectorVerifier:
     Both layers receive four string/int fields:  NUME_LAYER, FID, TIP_EROARE, DETALII.
     At the end they are added to the current group "DE_VERIFICAT" in the QGIS project.
     """
+
+    def __init__ (self, iface):
+        self.iface = iface
 
     # ------------------------------------------------------------------
     #  Public API
@@ -67,6 +72,33 @@ class VectorVerifier:
 
         # Prepare error layers
         self._init_error_layers()
+        
+        # get the values from layer LINIA_JT - DENUM and have the user choose it from a dropdown
+        linia_jt_layer = self._proj.mapLayersByName("LINIE_JT")
+        if not linia_jt_layer:
+            QgsMessageLog.logMessage("Layer 'LINIE_JT' not found in the project", "VectorVerifier", level=Qgis.Critical)
+            return
+        linia_jt_layer = linia_jt_layer[0]
+        linia_jt_values = set()
+        for feature in linia_jt_layer.getFeatures():
+            denum = feature["DENUM"]
+            if denum:
+                linia_jt_values.add(denum)
+                
+        # keep the list deterministic & human-friendly
+        linia_jt_choices = sorted(linia_jt_values)
+
+        self.linia_jt_val, ok = QInputDialog.getItem(
+            self.iface.mainWindow(),                # parent – QGIS main window
+            "Selectează denumirea liniei JT",                # dialog title
+            "DENUM:",                               # label
+            linia_jt_choices,                       # items shown in the drop-down
+            0,                                      # initially selected index
+            False                                   # editable?  False = fixed list
+        )
+
+        if not ok:          # user hit Cancel or closed the dialog
+            return
 
         # Perform the five groups of checks
         self._rule1_snapping()
@@ -287,17 +319,18 @@ class VectorVerifier:
 
     # ------------------------------------------------------------------
     #  RULE 5 – dangling TRONSON endpoints need ‘t’ or ‘t/d’ on STALP
+    #           + complain when the endpoint touches a single BRANS whose
+    #             TIP_FIRI_BR is BMPM/BMPT
     # ------------------------------------------------------------------
     def _rule5_terminal_tronson(self):
         allowed_cond = {
-            "tyir 16al + 25al",          # normalise to lower case once
+            "tyir 16al + 25al",
             "tyir 3x25al + 16al",
-            "tyir 2x25al"
+            "tyir 2x25al",
         }
 
-        # ---------- 1. catalogue every endpoint and its conductor type -----------
-        end_pts        = {}        # (x,y) ➜ count
-        end_cond_types = {}        # (x,y) ➜ list of TIP_COND strings
+        # ---------- 1. catalogue every endpoint and its conductor type ----------
+        end_pts, end_cond_types = {}, {}          # (x,y) ➜ count / list[str]
 
         for feat in self._tronson.getFeatures():
             geom = feat.geometry()
@@ -313,41 +346,75 @@ class VectorVerifier:
 
         dangling_coords = {k for k, v in end_pts.items() if v == 1}
 
-        # ------------- 2. validate each dangling coordinate ----------------------
+        # ---------------- 2. validate each dangling coordinate -------------------
         for coord in dangling_coords:
             pt_geom = QgsGeometry.fromPointXY(QgsPointXY(*coord))
 
+            # --- 2.a   nearest STALP ---
             nearest_ids = self._idx_stalp.nearestNeighbor(QgsPointXY(*coord), 3)
             if not nearest_ids:
                 self._add_err_line(
                     pt_geom, "TRONSON_JT", -1,
                     "Sfârșit tronson fără STÂLP",
-                    "Capăt de TRONSON fără STALP_JT corespunzător"
+                    "Capăt de TRONSON fără STALP_JT corespunzător",
                 )
                 continue
 
-            fid         = nearest_ids[0]
-            stalp_feat  = self._stalp.getFeature(fid)
+            fid        = nearest_ids[0]
+            stalp_feat = self._stalp.getFeature(fid)
 
             if pt_geom.distance(stalp_feat.geometry()) > self._tol:
                 self._add_err_line(
                     pt_geom, "TRONSON_JT", -1,
                     "Sfârșit tronson fără STÂLP",
-                    "Capăt de TRONSON fără STALP_JT corespunzător"
+                    "Capăt de TRONSON fără STALP_JT corespunzător",
                 )
                 continue
 
             tip_leg   = str(stalp_feat["TIP_LEG_JT"]).strip().lower()
             cond_list = end_cond_types.get(coord, [])
 
-            # ---- 3. raise only if TIP_LEG is bad and no conductor is allowed --
+            # --- 2.b   touches exactly one BRANS with BMPM/BMPT ----
+            stalp_geom = stalp_feat.geometry()
+            
+            brans_ids = self._idx_brans.intersects(stalp_geom.boundingBox())
+            brans_hits = [
+                self._brans.getFeature(bid)
+                for bid in brans_ids
+                if self._brans.getFeature(bid).geometry().intersects(stalp_geom)
+            ]
+
+            if len(brans_hits) == 1:
+                QgsMessageLog.logMessage(
+                    f"STALP {stalp_feat.id()} touches exactly one BRANS {brans_hits[0].id()}",
+                    "VectorVerifier",
+                    level=Qgis.Info,
+                )
+                brans_feat = brans_hits[0]
+                tip_firi   = str(brans_feat["TIP_FIRI_BR"]).strip().upper()
+                if tip_firi in {"BMPM", "BMPT"}:
+                    self._add_err_point(
+                        stalp_feat.geometry(), "BRANS_FIRI_GRPM_JT", brans_feat.id(),
+                        f"STÂLP intersectează o singură BRANS_FIRI_GRPM_JT "
+                        f"cu TIP_FIRI_BR = ‘{tip_firi}’.",
+                        f"TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. Valoare actuală: {tip_leg.strip()}"
+                    )
+            else:
+                QgsMessageLog.logMessage(
+                    f"STALP {stalp_feat.id()} touches {len(brans_hits)} BRANS",
+                    "VectorVerifier",
+                    level=Qgis.Info,
+                )
+
+            # --- 2.c   “classic” rule: bad TIP_LEG_JT + no allowed cond ----------
             if tip_leg not in ("t", "t/d") and all(c not in allowed_cond for c in cond_list):
                 self._add_err_point(
                     stalp_feat.geometry(), "STALP_JT", stalp_feat.id(),
                     "STÂLP final fără TIP_LEG adecvat",
                     f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-                    f"Valoare actuală: `{tip_leg.strip()}`. "
+                    f"Valoare actuală: `{tip_leg.strip()}`.",
                 )
+
 
     # ------------------------------------------------------------------
     #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT
@@ -374,14 +441,15 @@ class VectorVerifier:
 
         Assumptions
         -----------
-        • The model outputs *conductorul_nu_e_rupt*   (Point layer)
-        •                 and *conductorul_nu_e_rupt_la_cs* (Line layer).
-        • Each output carries an **FID** attribute back‑linking to the source feature.
+        • The model outputs *conductorul_nu_e_rupt_la_cs*   (Point layer)
+        •                 and *conductorul_nu_e_rupt* (Line layer).
+        • Each output carries an **fid** attribute back‑linking to the source feature.
         • A point record signals a *conductor rupture at pole*;  a line record signals
           *conductor rupture on tronson* – both are considered errors.
         """
+        
         params = {
-            "linia_jt": "CIRCUIT 1",
+            "linia_jt": self.linia_jt_val,
             "stalpi": self._stalp,
             "tronson": self._tronson,
             "conductorul_nu_e_rupt": QgsProcessing.TEMPORARY_OUTPUT,
@@ -394,25 +462,54 @@ class VectorVerifier:
             return
 
         # ---- Point output -> erori_stalp ----------------------------------
-        pt_layer = result.get("conductorul_nu_e_rupt")
+        pt_layer = result.get("conductorul_nu_e_rupt_la_cs")
         if isinstance(pt_layer, QgsVectorLayer):
             for f in pt_layer.getFeatures():
-                fid_link = f["FID"] if "FID" in pt_layer.fields().names() else f.id()
+                fid_link = f["fid"] if "fid" in pt_layer.fields().names() else f.id()
                 self._add_err_point(f.geometry(), "STALP_JT", fid_link,
                                     "Rupere conductor",
-                                    "Conductor nu e rupt/întrerupt în dreptul stâlpului")
+                                    "Conductorul nu e rupt/întrerupt pe stâlp")
         else:
             QgsMessageLog.logMessage("Output 'conductorul_nu_e_rupt' is not a vector layer", "VectorVerifier", level=Qgis.Warning)
 
         # ---- Line output -> erori_brans_tronson ---------------------------
-        line_layer = result.get("conductorul_nu_e_rupt_la_cs")
+        line_layer = result.get("conductorul_nu_e_rupt")
         if isinstance(line_layer, QgsVectorLayer):
+
+            # Build a quick lookup on first use – O(1) fetch later
+            use_attr = "fid" in self._tronson.fields().names()
+            tronson_index = {
+                (f["fid"] if use_attr else f.id()): f.geometry()
+                for f in self._tronson.getFeatures()
+            }
+
             for f in line_layer.getFeatures():
-                fid_link = f["FID"] if "FID" in line_layer.fields().names() else f.id()
-                self._add_err_line(f.geometry(), "TRONSON_JT", fid_link,
-                                   "Rupere conductor",
-                                   "Conductor nu e rupt/întrerupt pe tronson")
+                fid_link = f["fid"] if "fid" in line_layer.fields().names() else f.id()
+
+                # Grab the original geometry
+                geom = tronson_index.get(fid_link)
+
+                # fall back to a flattened copy if we can’t
+                if geom is None:
+                    g = f.geometry()
+                    if g.isMultipart():                     # MultiLineString → first part
+                        parts = g.asMultiPolyline()
+                        geom = QgsGeometry.fromPolylineXY(parts[0])
+                    else:
+                        geom = g
+
+                self._add_err_line(
+                    geom,
+                    "TRONSON_JT",
+                    fid_link,
+                    "Rupere conductor",
+                    "Conductorul nu e rupt/întrerupt pe tronson",
+                )
         else:
-            QgsMessageLog.logMessage("Output 'conductorul_nu_e_rupt_la_cs' is not a vector layer", "VectorVerifier", level=Qgis.Warning)
+            QgsMessageLog.logMessage(
+                "Output 'conductorul_nu_e_rupt' is not a vector layer",
+                "VectorVerifier",
+                level=Qgis.Warning,
+            )
 
 
