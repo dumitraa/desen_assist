@@ -432,7 +432,6 @@ class VectorVerifier:
                     f"Valoare actuală: `{tip_leg}`."
                 )
 
-
     # ------------------------------------------------------------------
     #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT
     # ------------------------------------------------------------------

@@ -1461,7 +1461,6 @@ class DesenAssist:
         if idx_nr == -1 or idx_tip == -1:
             raise ValueError("STALP_JT is missing NR_CIR or TIP_CIR")
 
-        # ---- Edit-session handling ----
         started_edit = False
         if not st_layer.isEditable():
             started_edit = st_layer.startEditing()
@@ -1473,20 +1472,20 @@ class DesenAssist:
                 geom_pole = pole.geometry()
                 tip_cir   = (pole[idx_tip] or "").upper()
 
-                # ---------- TRONSON first ----------
+                # ---------- TRONSON: Get unique LINIA_JT ---------- 
                 tr_ids = tr_index.intersects(geom_pole.boundingBox())
-                tr_cnt = sum(
-                    1 for fid in tr_ids
+                tr_unique_names = set(
+                    tr_layer.getFeature(fid)[ 'LINIA_JT' ]
+                    for fid in tr_ids
                     if tr_layer.getFeature(fid).geometry().intersects(geom_pole)
                 )
-                QgsMessageLog.logMessage(
-                    f"Pole {pole.id()} – TRONSON count: {tr_cnt}", "DesenAssist", Qgis.Info
-                )
+                tr_cnt = len(tr_unique_names)
 
-                if tr_cnt:                     # at least one tronson
+                # If at least one TRONSON touches, set NR_CIR to the number of unique LINIA_JT
+                if tr_cnt > 0:
                     nr_cir = tr_cnt
                 else:
-                    # ---------- BRANS fallback ----------
+                    # ---------- BRANS: Check if any branch touches ----------
                     br_ids = br_index.intersects(geom_pole.boundingBox())
                     has_branch = any(
                         br_layer.getFeature(fid).geometry().intersects(geom_pole)
@@ -1494,15 +1493,15 @@ class DesenAssist:
                     )
                     nr_cir = 1 if has_branch else 0
 
-                # -------- IL bump --------
+                # -------- IL bump: Add +1 if TIP_CIR contains 'IL' --------
                 if "IL" in tip_cir:
                     nr_cir += 1
 
+                # Set the NR_CIR field for the pole
                 pole[idx_nr] = nr_cir
                 st_layer.updateFeature(pole)
 
         finally:
-            # Commit only if we started the edit session
             if started_edit:
                 if not st_layer.commitChanges():
                     st_layer.rollBack()
