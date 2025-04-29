@@ -10,8 +10,12 @@ from qgis.core import ( # type: ignore
     QgsWkbTypes,
     QgsMessageLog,
     Qgis,
-    QgsProcessing
+    QgsProcessing,
+    QgsRectangle,
 )
+
+from collections import defaultdict
+from itertools   import islice
 
 import processing # type: ignore
 
@@ -308,7 +312,7 @@ class VectorVerifier:
                 if QgsGeometry.fromPointXY(term_pt).distance(QgsGeometry.fromPointXY(pt)) <= self._tol:
                     snapped_to_terminal_br = True
                     break
-            if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
+            if snapped_to_terminal_br and str(feat["TIP_LEG_JT"]).strip().lower() in ["t", "t/d"] and self._contains_letters(feat["DENUM"]):
                 self._add_err_point(feat.geometry(), "STALP_JT", feat.id(),
                                     "Terminal BR greșit",
                                     "STÂLP terminal cu litere în DENUM pe BRANS și TIP_LEG_JT = t / t/d")
@@ -329,90 +333,103 @@ class VectorVerifier:
             "tyir 2x25al",
         }
 
-        # ---------- 1. catalogue every endpoint and its conductor type ----------
-        end_pts, end_cond_types = {}, {}          # (x,y) ➜ count / list[str]
+        tol  = self._tol
+        tron = self._tronson
+        poles = self._stalp
 
-        for feat in self._tronson.getFeatures():
-            geom = feat.geometry()
-            c0   = QgsPointXY(geom.constGet().pointN(0))
-            c1   = QgsPointXY(geom.constGet().pointN(geom.constGet().numPoints() - 1))
+        # ---------- 0. speed helpers ----------
+        get_pole     = poles.getFeature
+        get_tronson  = tron.getFeature
 
-            for p in (c0, c1):
-                key = (round(p.x(), 6), round(p.y(), 6))
-                end_pts[key] = end_pts.get(key, 0) + 1
-                end_cond_types.setdefault(key, []).append(
-                    str(feat["TIP_COND"]).strip().lower()
+        # ---------- 1. map TRONSON id ➜ its two end-points ----------
+        tron_endpts = {}                          # fid ➜ {QgsPointXY, QgsPointXY}
+        for f in tron.getFeatures():
+            g = f.geometry().constGet()
+            tron_endpts[f.id()] = (
+                QgsPointXY(g.pointN(0)),
+                QgsPointXY(g.pointN(g.numPoints()-1)),
+            )
+
+        # ---------- 1.5. orphan-endpoint sweep (capăt de TRONSON fără STÂLP) ----------
+        for tid, (p0, p1) in tron_endpts.items():
+            for pt in (p0, p1):
+                #  a tiny bbox query keeps the candidate list microscopic
+                bb_ids = self._idx_stalp.intersects(QgsRectangle(
+                    pt.x() - tol, pt.y() - tol, pt.x() + tol, pt.y() + tol))
+
+                has_pole = any(
+                    poles.getFeature(pid).geometry().intersects(
+                        QgsGeometry.fromPointXY(pt))
+                    for pid in bb_ids
                 )
 
-        dangling_coords = {k for k, v in end_pts.items() if v == 1}
+                if not has_pole:
+                    self._add_err_line(
+                        QgsGeometry.fromPointXY(pt), "TRONSON_JT", tid,
+                        "Sfârșit tronson fără STÂLP",
+                        "Capăt de TRONSON fără STALP_JT corespunzător",
+                    )
 
-        # ---------------- 2. validate each dangling coordinate -------------------
-        for coord in dangling_coords:
-            pt_geom = QgsGeometry.fromPointXY(QgsPointXY(*coord))
+        # ---------- 2. map STALP id ➜ [intersecting TRONSON ids] ----------
+        poles_touching = defaultdict(list)
+        for tf in tron.getFeatures():
+            bb = tf.geometry().boundingBox()
+            for pid in self._idx_stalp.intersects(bb):
+                pf = get_pole(pid)
+                if tf.geometry().intersects(pf.geometry()):
+                    poles_touching[pid].append(tf.id())
 
-            # --- 2.a   nearest STALP ---
-            nearest_ids = self._idx_stalp.nearestNeighbor(QgsPointXY(*coord), 3)
-            if not nearest_ids:
-                self._add_err_line(
-                    pt_geom, "TRONSON_JT", -1,
-                    "Sfârșit tronson fără STÂLP",
-                    "Capăt de TRONSON fără STALP_JT corespunzător",
-                )
-                continue
+        # ---------- 3. evaluate each pole that has exactly one hit ----------
+        for pid, tron_ids in poles_touching.items():
+            if len(tron_ids) != 1:
+                continue                                    # pole is a node, not a terminal
 
-            fid        = nearest_ids[0]
-            stalp_feat = self._stalp.getFeature(fid)
+            tid  = tron_ids[0]
+            pf   = get_pole(pid)
+            tf   = get_tronson(tid)
 
-            if pt_geom.distance(stalp_feat.geometry()) > self._tol:
-                self._add_err_line(
-                    pt_geom, "TRONSON_JT", -1,
-                    "Sfârșit tronson fără STÂLP",
-                    "Capăt de TRONSON fără STALP_JT corespunzător",
-                )
-                continue
+            pole_geom   = pf.geometry()
+            t_end_0, t_end_1 = tron_endpts[tid]
 
-            tip_leg   = str(stalp_feat["TIP_LEG_JT"]).strip().lower()
-            cond_list = end_cond_types.get(coord, [])
+            # is the pole geometry coincident with *one* of the two end vertices?
+            if not (
+                pole_geom.intersects(QgsGeometry.fromPointXY(t_end_0).buffer(tol, 1)) or
+                pole_geom.intersects(QgsGeometry.fromPointXY(t_end_1).buffer(tol, 1))
+            ):
+                continue                                    # touches mid-span → ignore
 
-            # --- 2.b   touches exactly one BRANS with BMPM/BMPT ----
-            stalp_geom = stalp_feat.geometry()
-            
-            brans_ids = self._idx_brans.intersects(stalp_geom.boundingBox())
-            brans_hits = [
-                self._brans.getFeature(bid)
-                for bid in brans_ids
-                if self._brans.getFeature(bid).geometry().intersects(stalp_geom)
+            # ------------ 4. now you KNOW it's a dangling endpoint ------------
+            tip_leg = str(pf['TIP_LEG_JT']).strip().lower()
+            cond_list = [
+                str(tf['TIP_COND']).strip().lower()
             ]
 
-            if len(brans_hits) == 1:
-                QgsMessageLog.logMessage(
-                    f"STALP {stalp_feat.id()} touches exactly one BRANS {brans_hits[0].id()}",
-                    "VectorVerifier",
-                    level=Qgis.Info,
-                )
-                brans_feat = brans_hits[0]
-                tip_firi   = str(brans_feat["TIP_FIRI_BR"]).strip().upper()
-                if tip_firi in {"BMPM", "BMPT"}:
-                    self._add_err_point(
-                        stalp_feat.geometry(), "BRANS_FIRI_GRPM_JT", brans_feat.id(),
-                        f"STÂLP intersectează o singură BRANS_FIRI_GRPM_JT "
-                        f"cu TIP_FIRI_BR = ‘{tip_firi}’.",
-                        f"TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. Valoare actuală: {tip_leg.strip()}"
-                    )
-            else:
-                QgsMessageLog.logMessage(
-                    f"STALP {stalp_feat.id()} touches {len(brans_hits)} BRANS",
-                    "VectorVerifier",
-                    level=Qgis.Info,
-                )
+            # --- 4.a “one BRANS BMPM/BMPT” sub-rule ----------
+            br_hits = [
+                self._brans.getFeature(bid)
+                for bid in self._idx_brans.intersects(pole_geom.boundingBox())
+                if self._brans.getFeature(bid).geometry().intersects(pole_geom)
+            ]
 
-            # --- 2.c   “classic” rule: bad TIP_LEG_JT + no allowed cond ----------
-            if tip_leg not in ("t", "t/d") and all(c not in allowed_cond for c in cond_list):
+            if len(br_hits) == 1:
+                tip_firi = str(br_hits[0]['TIP_FIRI_BR']).strip().lower()
+                if tip_firi in {'bmpm', 'bmpt'} \
+                and tip_leg not in ('t', 't/d') \
+                and all(c not in allowed_cond for c in cond_list):
+                    self._add_err_point(
+                        pole_geom, "BRANS_FIRI_GRPM_JT", br_hits[0].id(),
+                        f"STÂLP intersectează o singură BRANS_FIRI_GRPM_JT "
+                        f"cu TIP_FIRI_BR = ‘{tip_firi.upper()}’.",
+                        f"TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. Valoare actuală: {tip_leg}"
+                    )
+                    continue
+            # --- 4.b generic check ----------
+            if tip_leg not in ('t', 't/d') and all(c not in allowed_cond for c in cond_list):
                 self._add_err_point(
-                    stalp_feat.geometry(), "STALP_JT", stalp_feat.id(),
+                    pole_geom, "STALP_JT", pid,
                     "STÂLP final fără TIP_LEG adecvat",
                     f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-                    f"Valoare actuală: `{tip_leg.strip()}`.",
+                    f"Valoare actuală: `{tip_leg}`."
                 )
 
 
