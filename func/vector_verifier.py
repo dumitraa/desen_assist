@@ -341,8 +341,8 @@ class VectorVerifier:
         get_pole     = poles.getFeature
         get_tronson  = tron.getFeature
 
-        # ---------- 1. map TRONSON id ➜ its two end-points ----------
-        tron_endpts = {}                          # fid ➜ {QgsPointXY, QgsPointXY}
+        # ---------- 1. map TRONSON id -> its two end-points ----------
+        tron_endpts = {}                          # fid -> {QgsPointXY, QgsPointXY}
         for f in tron.getFeatures():
             g = f.geometry().constGet()
             tron_endpts[f.id()] = (
@@ -370,7 +370,7 @@ class VectorVerifier:
                         "Capăt de TRONSON fără STALP_JT corespunzător",
                     )
 
-        # ---------- 2. map STALP id ➜ [intersecting TRONSON ids] ----------
+        # ---------- 2. map STALP id -> [intersecting TRONSON ids] ----------
         poles_touching = defaultdict(list)
         for tf in tron.getFeatures():
             bb = tf.geometry().boundingBox()

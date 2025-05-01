@@ -1,0 +1,27 @@
+<!-- dashboard/index.html  ---------------------------------- -->
+<!doctype html>
+<meta charset="utf-8">
+<h1>Live digitising feed</h1>
+<table id="tbl"></table>
+<script>
+async function refresh() {
+  const r    = await fetch('http://localhost:8000/events');
+  const rows = await r.json();
+  const tbl  = document.getElementById('tbl');
+
+  tbl.innerHTML =
+  `<tr>
+     <th>time</th><th>user</th><th>layer</th><th>fid</th>
+     <th>field</th><th>value</th>
+   </tr>` +
+  rows.map(e => `
+    <tr>
+      <td>${e.time}</td><td>${e.user ?? ''}</td><td>${e.layer}</td><td>${e.fid}</td>
+      <td>${e.field ?? ''}</td><td>${e.value ?? ''}</td>
+    </tr>`
+  ).join('');
+}
+setInterval(refresh, 1000);   // auto-refresh every second
+refresh();                    // first call on load
+</script>
+

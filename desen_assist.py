@@ -63,6 +63,9 @@ from .func.helper_functions import HelperBase, SHPProcessor
 from .func.vector_verifier import VectorVerifier
 from .resources import *
 
+from .event_tracker import EditTracker
+from .user_utils import get_current_user
+
 
 class DesenAssist:
     """QGIS Plugin Implementation."""
@@ -82,6 +85,8 @@ class DesenAssist:
         self.plugin_dir = os.path.dirname(__file__)
         self.helper = HelperBase()
         self.processor = None
+        self.current_user = get_current_user(parent=self.iface.mainWindow())
+        self.tracker = EditTracker(self.iface, self.current_user)
         # initialize locale
         locale = QSettings().value('locale/userLocale')[0:2]
         locale_path = os.path.join(
