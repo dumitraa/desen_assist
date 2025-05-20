@@ -58,11 +58,25 @@ Manual QA on thousands of poles is slow and error‑prone. DesenAssist sits in i
 * Built for Romanian LV datasets; international schemas will need tweaks.  
 * UI only in RO at the moment.
 
+---
+
 ## Telemetry
 
-DesenAssist now emits additional events to the local backend. The tracker records
-button clicks, project changes and idle time. Placeholder metrics for presence
+DesenAssist now emits additional events to the local backend. The tracker records button clicks, project changes and idle time. Placeholder metrics for presence and productivity will be expanded in future releases.
+
+---
+
 and productivity will be expanded in future releases.
+
+### Metrics API
+
+The backend exposes additional endpoints for summarised statistics which can be queried by the plugin or an external dashboard:
+
+* `GET /stats/layers` – total inserts, updates and deletes grouped by layer.
+* `GET /stats/kilometers` – daily kilometres digitised for `TRONSON_JT` and progress towards the monthly target defined in `config.ini`.
+* `GET /stats/users` – edit counts per user together with the number of recorded sessions.
+
+All endpoints return JSON and require no authentication for local use.
 
 ---
 
