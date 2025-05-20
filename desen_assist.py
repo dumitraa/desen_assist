@@ -471,6 +471,7 @@ class DesenAssist:
                     feature["ID_BDI"] = linia_jt_mapping[linia_denum]
                     layer.updateFeature(feature)
             layer.commitChanges()
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
         
         # Spatially join ID_BDI from TRONSON_JT to STALP_JT
         tronson_jt_layer = layers["TRONSON_JT"]
@@ -511,6 +512,7 @@ class DesenAssist:
                 stalp_jt_layer.updateFeature(stalp)
 
         stalp_jt_layer.commitChanges()
+        send_event(user=self.current_user, action="auto_complete", layer=stalp_jt_layer.name())
         return True
 
 
@@ -756,12 +758,28 @@ class DesenAssist:
         br = QgsProject.instance().mapLayersByName("BRANS_FIRI_GRPM_JT")[0]
         tr = QgsProject.instance().mapLayersByName("TRONSON_JT")[0]
         
+        updated_layers = set()
+
         self.update_nr_circuite(st, tr, br)
+        updated_layers.add(st)
+
         self.update_branch_fields(br)
+        updated_layers.add(br)
+
         self.update_prop_column(st)
+        updated_layers.add(st)
+
         self.update_tip_fund(st)
+        updated_layers.add(st)
+
         self.update_true_false_columns(st)
+        updated_layers.add(st)
+
         self.update_uzu_stp_prop_fo(st)
+        updated_layers.add(st)
+
+        for layer in updated_layers:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
         
         QMessageBox.information(None, "Completare campuri", "Campurile au fost completate cu succes.")
 
@@ -902,6 +920,7 @@ class DesenAssist:
                 feature["DENUM"] = denum.upper()
                 original_layer.updateFeature(feature)
         original_layer.commitChanges()
+        send_event(user=self.current_user, action="auto_complete", layer=original_layer.name())
 
         jt_features = [f for f in original_layer.getFeatures() if "BR" in f["TIP_CIR"] and "JT" not in f["TIP_CIR"]]
         jt_features_sorted = sorted(jt_features, key=lambda f: self.clean_denum(f["DENUM"]))
@@ -1387,7 +1406,9 @@ class DesenAssist:
 
         if not layer.commitChanges():
             QMessageBox.critical(None, "FIB_OPT, LTC, CATV - STALP_JT", "Eroare la actualizarea coloanelor FIB_OPT, LTC, CATV.")
-        
+        else:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
+   
     def update_prop_column(self, st):
         """
         Updates the PROP field in the 'STALP_JT' layer based on the DESC_CTG_MT_JT field.
@@ -1429,7 +1450,9 @@ class DesenAssist:
 
         if not layer.commitChanges():
             QMessageBox.critical(None, "PROP - STALP_JT", "Eroare la actualizarea coloanei PROP.")
-        
+        else:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
+            
     def update_tip_fund(self, st):
         layer = st
 
@@ -1449,6 +1472,8 @@ class DesenAssist:
 
         if not layer.commitChanges():
             QMessageBox.critical(None, "TIP_FUND - STALP_JT", "Eroare la actualizarea coloanei TIP_FUND.")
+        else:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
             
     def update_nr_circuite(self, st_layer, tr_layer, br_layer):
         """
@@ -1521,6 +1546,8 @@ class DesenAssist:
                         None, "NR_CIR - STALP_JT",
                         "Eroare la actualizarea coloanei NR_CIR."
                     )
+                else:
+                    send_event(user=self.current_user, action="auto_complete", layer=st_layer.name())
     
     def update_branch_fields(self, br):
         """
@@ -1598,6 +1625,8 @@ class DesenAssist:
             QMessageBox.critical(None, 'TIP_BR - BRANS_FIRI_GRPM_JT',
                                 'Eroare la actualizarea campului TIP_BR.')
             return
+        else:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
 
         if vague:
             QMessageBox.critical(
@@ -1678,7 +1707,9 @@ class DesenAssist:
                     
         if not layer.commitChanges():
             QMessageBox.critical(None, "UZURA_STP si PROP_FO - STALP_JT", "Eroare la actualizarea coloanelor UZURA_STP si PROP_FO.")
-            
+        else:
+            send_event(user=self.current_user, action="auto_complete", layer=layer.name())
+    
     def verify_streets(self):
         self.process_layers(self.layers)
 
@@ -1705,8 +1736,13 @@ class DesenAssist:
                         feature["STR"] = street.strip()
                         layer.updateFeature(feature)
                         
-            layer.commitChanges()
-
+            if not layer.commitChanges():
+                QMessageBox.critical(None, "Verificare străzi", f"Eroare la actualizarea străzilor în {layer.name()}.")
+                return
+            else:
+                send_event(user=self.current_user, action="auto_complete", layer=layer.name())
+                
+                
         dialog = GenerateExcelDialog(self.base_dir)
         dialog.exec_()
         

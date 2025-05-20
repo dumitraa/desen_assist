@@ -11,7 +11,8 @@ _cfg.read(ini_path, encoding="utf-8")
 def _get(section, key, default=None):
     return _cfg.get(section, key, fallback=default)
 
-BACKEND_URL = _get("backend", "url", "http://localhost:8000").rstrip("/")
+BACKEND_URL = _get("backend", "url", "http://localhost:8000")
+BACKEND_URL = BACKEND_URL.rstrip("/") if BACKEND_URL else BACKEND_URL
 TIMEOUT     = float(_get("backend", "timeout", 1))
 
 LAYERS      = [

@@ -1,5 +1,5 @@
-from qgis.core import QgsProject
-from PyQt5.QtCore import QObject, QTimer
+from qgis.core import QgsProject # type: ignore
+from PyQt5.QtCore import QObject, QTimer #type: ignore
 from .api_client import send_event
 from .config import LAYERS, NULL_VALUES, IDLE_SECONDS
 
@@ -133,6 +133,9 @@ class EditTracker(QObject):
                 layer.editingStopped.connect(self.on_edit_stop)
 
     def _on_project_opened(self):
+        if self.checked_in:
+            send_event(user=self.user, action="check_out")
+            self.checked_in = False
         send_event(
             user=self.user,
             action="project_open",
