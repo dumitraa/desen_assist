@@ -64,7 +64,8 @@ from .func.vector_verifier import VectorVerifier
 from .resources import *
 
 from .event_tracker import EditTracker
-from .user_utils import get_current_user
+from .user_utils import get_current_user, get_plugin_version
+from .api_client import send_event
 
 
 class DesenAssist:
@@ -87,6 +88,7 @@ class DesenAssist:
         self.processor = None
         self.current_user = get_current_user(parent=self.iface.mainWindow())
         self.tracker = EditTracker(self.iface, self.current_user)
+        send_event(user=self.current_user, action="version", value=get_plugin_version())
         # initialize locale
         locale = QSettings().value('locale/userLocale')[0:2]
         locale_path = os.path.join(
@@ -154,7 +156,10 @@ class DesenAssist:
         action.setEnabled(enabled_flag)
 
         if callback is not None:
-            action.triggered.connect(callback)
+            def wrapped():
+                send_event(user=self.current_user, action="button", value=name)
+                callback()
+            action.triggered.connect(wrapped)
             action.setEnabled(enabled_flag)
 
         if status_tip is not None:
@@ -307,6 +312,8 @@ class DesenAssist:
             self.iface.removePluginMenu(self.tr(u'&Desen Assist'), action)
             self.toolbar.removeAction(action)
         del self.toolbar
+        if hasattr(self, 'tracker'):
+            self.tracker.finalize()
         
     def set_base_dir(self):
         project = QgsProject.instance()

@@ -20,5 +20,7 @@ LAYERS      = [
 
 AUTH_TOKEN  = _get("auth", "token", None)
 VALIDATION  = _cfg["validation"] if "validation" in _cfg else {}
+IDLE_SECONDS = int(_get("presence", "idle_seconds", 300))
+MONTHLY_TARGET_KM = float(_get("metrics", "monthly_km_target", 0))
 
 logging.info("Config loaded – BACKEND_URL=%s LAYERS=%s", BACKEND_URL, LAYERS)
