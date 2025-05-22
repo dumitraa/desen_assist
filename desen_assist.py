@@ -57,7 +57,7 @@ from qgis.core import ( # type: ignore
 )
 
 # Local imports
-from . import config
+from . import conf
 from .func.generate_excel import GenerateExcelDialog
 from .func.helper_functions import HelperBase, SHPProcessor
 from .func.vector_verifier import VectorVerifier
@@ -1212,14 +1212,14 @@ class DesenAssist:
                     nr_cir_fo_val = feature['NR_CIR_FO']
                     prop_fo_val = feature['PROP_FO']
                     
-                    if nr_cir_fo_val not in config.NULL_VALUES and prop_fo_val in config.NULL_VALUES:
+                    if nr_cir_fo_val not in conf.NULL_VALUES and prop_fo_val in conf.NULL_VALUES:
                         incomplete_columns.add('PROP_FO (NR_CIR_FO e completat)')
                             
                 for column in columns:
                     if column not in [field.name() for field in layer.fields()]:
                         continue
                     value = feature[column]
-                    if value in config.NULL_VALUES:
+                    if value in conf.NULL_VALUES:
                         incomplete_columns.add(column)
                         
                 if incomplete_columns:
@@ -1343,7 +1343,7 @@ class DesenAssist:
                     if column not in [field.name() for field in layer.fields()]:
                         continue
                     value = feature[column]
-                    if value not in config.NULL_VALUES:
+                    if value not in conf.NULL_VALUES:
                         try:
                             value = int(str(value))
                         except ValueError:
@@ -1396,7 +1396,7 @@ class DesenAssist:
                     continue
 
                 key_value = feature[key_field]
-                is_completed = key_value not in config.NULL_VALUES
+                is_completed = key_value not in conf.NULL_VALUES
 
                 new_value = "Da" if is_completed else "Nu"
 
@@ -1697,12 +1697,12 @@ class DesenAssist:
             if "NR_CIR_FO" in field_names and "PROP_FO" in field_names:
                 nr_cir_fo = feature["NR_CIR_FO"]
                 prop_fo = feature["PROP_FO"]
-                if nr_cir_fo not in config.NULL_VALUES and prop_fo in config.NULL_VALUES:
+                if nr_cir_fo not in conf.NULL_VALUES and prop_fo in conf.NULL_VALUES:
                     layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("PROP_FO"), "SC RCS&RDS S.A")
             
             if "UZURA_STP" in field_names:
                 uzura_stp = feature["UZURA_STP"]
-                if uzura_stp in config.NULL_VALUES:
+                if uzura_stp in conf.NULL_VALUES:
                     layer.changeAttributeValue(feature.id(), layer.fields().indexFromName("UZURA_STP"), 5)
                     
         if not layer.commitChanges():

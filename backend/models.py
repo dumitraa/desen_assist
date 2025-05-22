@@ -25,7 +25,7 @@ class LayerStat(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     date: datetime.date
-    layer: str
+    layer_name: str
     adds: int = 0
     updates: int = 0
     deletes: int = 0

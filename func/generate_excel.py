@@ -5,7 +5,7 @@ from qgis.core import QgsProject, QgsMessageLog, Qgis # type: ignore
 import pandas as pd
 from openpyxl import load_workbook
 import os
-from .. import config
+from .. import conf
 
 class GenerateExcelDialog(QDialog):
     def __init__(self, base_dir):
@@ -146,16 +146,16 @@ class GenerateExcelDialog(QDialog):
 
         for row_idx, (street, tip_strada) in enumerate(missing_streets, start=start_row):
             row_data = [
-                str(city_row.iloc[0]['JUDET']) if str(city_row.iloc[0]['JUDET']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['COD_UAT']) if str(city_row.iloc[0]['COD_UAT']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['NUME_UAT']) if str(city_row.iloc[0]['NUME_UAT']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['COD_LOC']) if str(city_row.iloc[0]['COD_LOC']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['NUME_LOC']) if str(city_row.iloc[0]['NUME_LOC']) not in config.NULL_VALUES else "",
+                str(city_row.iloc[0]['JUDET']) if str(city_row.iloc[0]['JUDET']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['COD_UAT']) if str(city_row.iloc[0]['COD_UAT']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['NUME_UAT']) if str(city_row.iloc[0]['NUME_UAT']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['COD_LOC']) if str(city_row.iloc[0]['COD_LOC']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['NUME_LOC']) if str(city_row.iloc[0]['NUME_LOC']) not in conf.NULL_VALUES else "",
                 str(street),
                 str(tip_strada),
-                str(city_row.iloc[0]['POST_CODE']) if str(city_row.iloc[0]['POST_CODE']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['REGIOGROUP']) if str(city_row.iloc[0]['REGIOGROUP']) not in config.NULL_VALUES else "",
-                str(city_row.iloc[0]['REGPOLIT']) if str(city_row.iloc[0]['REGPOLIT']) not in config.NULL_VALUES else ""
+                str(city_row.iloc[0]['POST_CODE']) if str(city_row.iloc[0]['POST_CODE']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['REGIOGROUP']) if str(city_row.iloc[0]['REGIOGROUP']) not in conf.NULL_VALUES else "",
+                str(city_row.iloc[0]['REGPOLIT']) if str(city_row.iloc[0]['REGPOLIT']) not in conf.NULL_VALUES else ""
             ]
             
             QgsMessageLog.logMessage(f"Row data: {row_data}", "DesenAssist", level=Qgis.Info)

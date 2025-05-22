@@ -3,14 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sqlmodel import Session, select
 from sqlalchemy import func, desc
-from .database import engine, init_db
-from .models import EditEvent, LayerStat
+from database import engine, init_db
+from models import EditEvent, LayerStat
 
 from math import hypot
 
 import datetime
 
-from ..config import MONTHLY_TARGET_KM
+from config import MONTHLY_TARGET_KM
 
 def _length_km(wkt: str) -> float:
     """Very small WKT parser for LINESTRING/MULTILINESTRING lengths."""
@@ -55,11 +55,11 @@ def add_event(ev: EditEvent):
             day = datetime.date.fromtimestamp(ev.ts)
             st = s.exec(
                 select(LayerStat).where(
-                    LayerStat.date == day, LayerStat.layer == ev.layer
+                    LayerStat.date == day, LayerStat.layer_name == ev.layer
                 )
             ).first()
             if not st:
-                st = LayerStat(date=day, layer=ev.layer)
+                st = LayerStat(date=day, layer_name=ev.layer)
             if ev.action == "add":
                 st.adds += 1
             elif ev.action == "delete":
@@ -85,17 +85,17 @@ def layer_stats():
     with Session(engine) as s:
         q = (
             select(
-                LayerStat.layer,
+                LayerStat.layer_name,
                 func.sum(LayerStat.adds),
                 func.sum(LayerStat.updates),
                 func.sum(LayerStat.deletes),
             )
-            .group_by(LayerStat.layer)
+            .group_by(LayerStat.layer_name)
         )
         rows = s.exec(q).all()
         return [
             {
-                "layer": r[0],
+                "layer_name": r[0],
                 "adds": r[1] or 0,
                 "updates": r[2] or 0,
                 "deletes": r[3] or 0,
@@ -120,7 +120,7 @@ def kilometers_stats(month: str | None = None):
         q = ( 
             select(LayerStat.date, func.sum(LayerStat.kilometers))  # type: ignore[call-arg]
             .where(
-                LayerStat.layer == "TRONSON_JT",
+                LayerStat.layer_name == "TRONSON_JT",
                 LayerStat.date >= start,
                 LayerStat.date < next_month,
             )

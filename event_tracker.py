@@ -1,7 +1,7 @@
 from qgis.core import QgsProject # type: ignore
 from PyQt5.QtCore import QObject, QTimer #type: ignore
 from .api_client import send_event
-from .config import LAYERS, NULL_VALUES, IDLE_SECONDS
+from .backend.config import LAYERS, NULL_VALUES, IDLE_SECONDS
 
 class EditTracker(QObject):
     def __init__(self, iface, user_name):
