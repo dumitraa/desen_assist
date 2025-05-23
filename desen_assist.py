@@ -928,77 +928,95 @@ class DesenAssist:
         self.helper.add_layer_to_de_verificat(scratch_layer)
 
 
-# C.	Coloana “linie jt” sa fie la fel la bransament si la tronson - WORKING
+    # C.	Coloana “linie jt” sa fie la fel la bransament si la tronson - WORKING
     def verify_linia_jt_matches(self):
-        '''
-        Checks for mismatched LINIA_JT values between intersecting features
-        in BRANS_FIRI_GRPM_JT and TRONSON_JT layers.
-        For every BRANS feature, each intersecting TRONSON feature is examined.
-        If the LINIA_JT values differ, a record is added to a scratch layer.
-        The scratch layer contains three fields:
-        "fid" - the BRANS feature ID,
-        "TRONSON_JT_LINIA_JT" - the LINIA_JT value from the TRONSON feature,
-        "BRANSAMENT_LINIA_JT" - the LINIA_JT value from the BRANS feature.
-        '''
-        # Load layers
-        brans_layers = QgsProject.instance().mapLayersByName('BRANS_FIRI_GRPM_JT')
-        tronson_layers = QgsProject.instance().mapLayersByName('TRONSON_JT')
-        
-        missing_layers = []
-        if not brans_layers:
-            missing_layers.append('BRANS_FIRI_GRPM_JT')
-        if not tronson_layers:
-            missing_layers.append('TRONSON_JT')
-        if missing_layers:
-            QMessageBox.critical(None, "Eroare", f"Urmatoarele straturi lipsesc: {', '.join(missing_layers)}. Asigură-te că straturile există în proiect și au denumirile corecte.")
+        """
+        Checks BRANS_FIRI_GRPM_JT against TRONSON_JT.
+        For each BRANS feature:
+            • collect all intersecting TRONSON features
+            • if at least one of those has the same LINIA_JT → branch is OK
+            • otherwise write a single record (or one-per-tronson, your choice) 
+            to the scratch layer
+        """
+        #-- Load layers -----------------------------------------------------------
+        project = QgsProject.instance()
+        brans_layer = next(iter(project.mapLayersByName('BRANS_FIRI_GRPM_JT')), None)
+        tronson_layer = next(iter(project.mapLayersByName('TRONSON_JT')), None)
+
+        if not brans_layer or not tronson_layer:
+            missing = [
+                name for name, lyr in
+                {'BRANS_FIRI_GRPM_JT': brans_layer,
+                'TRONSON_JT': tronson_layer}.items()
+                if lyr is None
+            ]
+            QMessageBox.critical(
+                None, "Eroare",
+                f"Următoarele straturi lipsesc: {', '.join(missing)}. "
+                "Asigură-te că straturile există în proiect și au denumirile corecte."
+            )
             return
-        
-        brans_layer = brans_layers[0]
-        tronson_layer = tronson_layers[0]
-        
-        # Build a spatial index for TRONSON layer for efficient querying.
+
+        #-- Spatial index for speed ----------------------------------------------
         tronson_index = QgsSpatialIndex(tronson_layer.getFeatures())
-        
+
         mismatches = []
-        
-        # Iterate over each BRANS feature.
-        for brans_feature in brans_layer.getFeatures():
-            brans_linia = brans_feature["LINIA_JT"]
-            if not brans_linia:
-                continue
-            brans_geom = brans_feature.geometry()
-            
-            # Find candidate TRONSON features that intersect the BRANS feature’s bounding box.
-            candidate_ids = tronson_index.intersects(brans_geom.boundingBox())
-            for cand_id in candidate_ids:
-                tronson_feature = tronson_layer.getFeature(cand_id)
-                if brans_geom.intersects(tronson_feature.geometry()):
-                    tronson_linia = tronson_feature["LINIA_JT"]
-                    # If the LINIA_JT values differ, record this mismatch.
-                    if tronson_linia != brans_linia:
-                        new_feature = QgsFeature()
-                        new_feature.setGeometry(brans_geom)
-                        new_feature.setAttributes([str(brans_feature.id()), tronson_linia, brans_linia])
-                        mismatches.append(new_feature)
-        
+
+        for br in brans_layer.getFeatures():
+            br_linia = br['LINIA_JT']
+            if not br_linia:
+                continue                      # nothing to compare with
+
+            br_geom = br.geometry()
+            cand_ids = tronson_index.intersects(br_geom.boundingBox())
+
+            # build list of intersecting tronson features once
+            inter_tronsons = [
+                tronson_layer.getFeature(fid)
+                for fid in cand_ids
+                if br_geom.intersects(tronson_layer.getFeature(fid).geometry())
+            ]
+            if not inter_tronsons:
+                continue  # or treat as mismatch if “must touch a tronson”
+
+            # Any intersecting tronson that matches?
+            if any(t['LINIA_JT'] == br_linia for t in inter_tronsons):
+                continue   # at least one match → branch is fine
+
+            # No matches → record every offending tronson
+            for t in inter_tronsons:
+                new_f = QgsFeature()
+                new_f.setGeometry(br_geom) # use the branch geometry
+                new_f.setAttributes([
+                    str(br.id()),
+                    t['LINIA_JT'],
+                    br_linia
+                ])
+                mismatches.append(new_f)
+
+        #-- Write scratch layer if needed ----------------------------------------
         if mismatches:
-            scratch_layer = QgsVectorLayer("LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
-            fields = QgsFields()
-            fields.append(QgsField("fid", QVariant.String))
-            fields.append(QgsField("TRONSON_JT_LINIA_JT", QVariant.String))
-            fields.append(QgsField("BRANSAMENT_LINIA_JT", QVariant.String))
-            scratch_layer.dataProvider().addAttributes(fields)
-            scratch_layer.updateFields()
-            
-            scratch_layer.dataProvider().addFeatures(mismatches)
-            scratch_layer.commitChanges()
-            self.helper.add_layer_to_de_verificat(scratch_layer)
-            
-            QMessageBox.information(None, "LINIA_JT", 
-                "Au fost gasite linii JT cu valori diferite intre BRANS_FIRI_GRPM_JT si TRONSON_JT.")
+            scratch = QgsVectorLayer(
+                "LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
+            pr = scratch.dataProvider()
+            pr.addAttributes([
+                QgsField("fid", QVariant.String),
+                QgsField("TRONSON_JT_LINIA_JT", QVariant.String),
+                QgsField("BRANSAMENT_LINIA_JT", QVariant.String)
+            ])
+            scratch.updateFields()
+            pr.addFeatures(mismatches)
+            scratch.commitChanges()
+
+            self.helper.add_layer_to_de_verificat(scratch)
+            QMessageBox.information(
+                None, "LINIA_JT",
+                "Au fost găsite branșamente fără nicio potrivire de LINIA_JT în TRONSON_JT.")
         else:
-            QMessageBox.information(None, "LINIA_JT", 
-                "Toate campurile de LINIA_JT corespund intre BRANS_FIRI_GRPM_JT si TRONSON_JT.")
+            QMessageBox.information(
+                None, "LINIA_JT",
+                "Toate valo­rile LINIA_JT responsabile au cel puțin o potrivire în TRONSON_JT.")
+
 
         
     def verify_street_names(self):
