@@ -424,13 +424,13 @@ class VectorVerifier:
                     )
                     continue
             # --- 4.b generic check ----------
-            if tip_leg not in ('t', 't/d') and all(c not in allowed_cond for c in cond_list):
-                self._add_err_point(
-                    pole_geom, "STALP_JT", pid,
-                    "STÂLP final fără TIP_LEG adecvat",
-                    f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-                    f"Valoare actuală: `{tip_leg}`."
-                )
+            # if tip_leg not in ('t', 't/d') and all(c not in allowed_cond for c in cond_list):
+            #     self._add_err_point(
+            #         pole_geom, "STALP_JT", pid,
+            #         "STÂLP final fără TIP_LEG adecvat",
+            #         f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
+            #         f"Valoare actuală: `{tip_leg}`."
+            #     )
 
     # ------------------------------------------------------------------
     #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT
