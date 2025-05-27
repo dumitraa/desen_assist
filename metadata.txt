@@ -6,7 +6,7 @@
 name=DesenAssist
 qgisMinimumVersion=3.0
 description=Helps in assisting in digitizing and QC of Low Voltage Underground Utility Poles for an internal workflow process
-version=2.5.3
+version=2.5.4
 author=Ionela
 email=ioneladumitra@yahoo.ro
 
