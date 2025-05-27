@@ -341,8 +341,8 @@ class VectorVerifier:
         get_pole     = poles.getFeature
         get_tronson  = tron.getFeature
 
-        # ---------- 1. map TRONSON id ➜ its two end-points ----------
-        tron_endpts = {}                          # fid ➜ {QgsPointXY, QgsPointXY}
+        # ---------- 1. map TRONSON id -> its two end-points ----------
+        tron_endpts = {}                          # fid -> {QgsPointXY, QgsPointXY}
         for f in tron.getFeatures():
             g = f.geometry().constGet()
             tron_endpts[f.id()] = (
@@ -370,7 +370,7 @@ class VectorVerifier:
                         "Capăt de TRONSON fără STALP_JT corespunzător",
                     )
 
-        # ---------- 2. map STALP id ➜ [intersecting TRONSON ids] ----------
+        # ---------- 2. map STALP id -> [intersecting TRONSON ids] ----------
         poles_touching = defaultdict(list)
         for tf in tron.getFeatures():
             bb = tf.geometry().boundingBox()
@@ -411,7 +411,7 @@ class VectorVerifier:
                 if self._brans.getFeature(bid).geometry().intersects(pole_geom)
             ]
 
-            if len(br_hits) == 1:
+            if len(br_hits) >= 1:
                 tip_firi = str(br_hits[0]['TIP_FIRI_BR']).strip().lower()
                 if tip_firi in {'bmpm', 'bmpt'} \
                 and tip_leg not in ('t', 't/d') \
@@ -423,14 +423,6 @@ class VectorVerifier:
                         f"TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. Valoare actuală: {tip_leg}"
                     )
                     continue
-            # --- 4.b generic check ----------
-            # if tip_leg not in ('t', 't/d') and all(c not in allowed_cond for c in cond_list):
-            #     self._add_err_point(
-            #         pole_geom, "STALP_JT", pid,
-            #         "STÂLP final fără TIP_LEG adecvat",
-            #         f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-            #         f"Valoare actuală: `{tip_leg}`."
-            #     )
 
     # ------------------------------------------------------------------
     #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT

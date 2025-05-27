@@ -932,76 +932,69 @@ class DesenAssist:
     def verify_linia_jt_matches(self):
         """
         Checks BRANS_FIRI_GRPM_JT against TRONSON_JT.
-        For each BRANS feature:
-            • collect all intersecting TRONSON features
-            • if at least one of those has the same LINIA_JT → branch is OK
-            • otherwise write a single record (or one-per-tronson, your choice) 
-            to the scratch layer
+        Writes one record for every BRANS feature whose LINIA_JT is NOT found in ANY intersecting TRONSON_JT feature.
+
+        Output scratch layer schema:
+            fid                  – id of the branșament feature
+            BRANSAMENT_LINIA_JT  – its LINIA_JT value
         """
-        #-- Load layers -----------------------------------------------------------
+        # -- Load layers -----------------------------------------------------------
         project = QgsProject.instance()
-        brans_layer = next(iter(project.mapLayersByName('BRANS_FIRI_GRPM_JT')), None)
-        tronson_layer = next(iter(project.mapLayersByName('TRONSON_JT')), None)
+        brans_layer   = next(iter(project.mapLayersByName('BRANS_FIRI_GRPM_JT')), None)
+        tronson_layer = next(iter(project.mapLayersByName('TRONSON_JT')),        None)
 
         if not brans_layer or not tronson_layer:
-            missing = [
-                name for name, lyr in
-                {'BRANS_FIRI_GRPM_JT': brans_layer,
-                'TRONSON_JT': tronson_layer}.items()
-                if lyr is None
-            ]
+            missing = [n for n, lyr in
+                    {'BRANS_FIRI_GRPM_JT': brans_layer,
+                        'TRONSON_JT'       : tronson_layer}.items() if lyr is None]
             QMessageBox.critical(
                 None, "Eroare",
-                f"Următoarele straturi lipsesc: {', '.join(missing)}. "
-                "Asigură-te că straturile există în proiect și au denumirile corecte."
-            )
+                f"Lipsesc straturile: {', '.join(missing)}. "
+                "Verifică denumirile în proiect.")
             return
 
-        #-- Spatial index for speed ----------------------------------------------
+        # -- Spatial index for TRONSON_JT -----------------------------------------
         tronson_index = QgsSpatialIndex(tronson_layer.getFeatures())
 
-        mismatches = []
+        mismatches, seen = [], set()
 
         for br in brans_layer.getFeatures():
             br_linia = br['LINIA_JT']
             if not br_linia:
-                continue                      # nothing to compare with
+                continue                              # nimic de comparat
 
-            br_geom = br.geometry()
+            # candidate tronson features
+            br_geom  = br.geometry()
             cand_ids = tronson_index.intersects(br_geom.boundingBox())
 
-            # build list of intersecting tronson features once
-            inter_tronsons = [
-                tronson_layer.getFeature(fid)
-                for fid in cand_ids
-                if br_geom.intersects(tronson_layer.getFeature(fid).geometry())
-            ]
-            if not inter_tronsons:
-                continue  # or treat as mismatch if “must touch a tronson”
+            # real intersections
+            inter = [tronson_layer.getFeature(fid)
+                    for fid in cand_ids
+                    if br_geom.intersects(tronson_layer.getFeature(fid).geometry())]
 
-            # Any intersecting tronson that matches?
-            if any(t['LINIA_JT'] == br_linia for t in inter_tronsons):
-                continue   # at least one match → branch is fine
+            if not inter:
+                continue
 
-            # No matches → record every offending tronson
-            for t in inter_tronsons:
+            if any(t['LINIA_JT'] == br_linia for t in inter):
+                continue                             
+
+            # -> mismatch, add exactly once
+            if br.id() not in seen:
                 new_f = QgsFeature()
-                new_f.setGeometry(br_geom) # use the branch geometry
-                new_f.setAttributes([
-                    str(br.id()),
-                    t['LINIA_JT'],
-                    br_linia
-                ])
+                new_f.setGeometry(br_geom)            # geometry of the branșament
+                new_f.setAttributes([str(br.id()), br_linia])
                 mismatches.append(new_f)
+                seen.add(br.id())
 
-        #-- Write scratch layer if needed ----------------------------------------
         if mismatches:
             scratch = QgsVectorLayer(
-                "LineString?crs=EPSG:3844", "LINIA_JT_verificare", "memory")
+                "LineString?crs=EPSG:3844",
+                "LINIA_JT_verificare",
+                "memory"
+            )
             pr = scratch.dataProvider()
             pr.addAttributes([
                 QgsField("fid", QVariant.String),
-                QgsField("TRONSON_JT_LINIA_JT", QVariant.String),
                 QgsField("BRANSAMENT_LINIA_JT", QVariant.String)
             ])
             scratch.updateFields()
@@ -1011,12 +1004,11 @@ class DesenAssist:
             self.helper.add_layer_to_de_verificat(scratch)
             QMessageBox.information(
                 None, "LINIA_JT",
-                "Au fost găsite branșamente fără nicio potrivire de LINIA_JT în TRONSON_JT.")
+                "Există branșamente fără nicio potrivire de LINIA_JT în TRONSON_JT.")
         else:
             QMessageBox.information(
                 None, "LINIA_JT",
-                "Toate valo­rile LINIA_JT responsabile au cel puțin o potrivire în TRONSON_JT.")
-
+                "Toate branșamentele au cel puțin o potrivire LINIA_JT în TRONSON_JT.")
 
         
     def verify_street_names(self):
