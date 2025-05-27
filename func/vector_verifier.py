@@ -162,7 +162,15 @@ class VectorVerifier:
         f.setAttribute("FID", fid)
         f.setAttribute("TIP_EROARE", tip)
         f.setAttribute("DETALII", det)
-        self._erori_stalp.addFeature(f)
+        try:
+            self._erori_stalp.addFeature(f)
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to add error point feature: {e}",
+                "DesenAssist",
+                level=Qgis.Critical
+            )
+            return
 
     def _add_err_line(self, geom: QgsGeometry, layer_name: str, fid: int, tip: str, det: str):
         f = QgsFeature(self._erori_line.fields())
@@ -171,7 +179,15 @@ class VectorVerifier:
         f.setAttribute("FID", fid)
         f.setAttribute("TIP_EROARE", tip)
         f.setAttribute("DETALII", det)
-        self._erori_line.addFeature(f)
+        try:
+            self._erori_line.addFeature(f)
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to add error line feature: {e}",
+                "DesenAssist",
+                level=Qgis.Critical
+            )
+            return        
 
     # ------------------------------------------------------------------
     #  Geometry utilities
@@ -362,10 +378,10 @@ class VectorVerifier:
                         QgsGeometry.fromPointXY(pt))
                     for pid in bb_ids
                 )
-
+                err_geom = tron.getFeature(tid).geometry()
                 if not has_pole:
                     self._add_err_line(
-                        QgsGeometry.fromPointXY(pt), "TRONSON_JT", tid,
+                        err_geom, "TRONSON_JT", tid,
                         "Sfârșit tronson fără STÂLP",
                         "Capăt de TRONSON fără STALP_JT corespunzător",
                     )
