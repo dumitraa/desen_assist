@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles  # Import this
+from fastapi.responses import HTMLResponse  # Import this
+from pathlib import Path # Import this
 
 from sqlmodel import Session, select
 from sqlalchemy import func, desc
@@ -11,6 +14,9 @@ from math import hypot
 import datetime
 
 from config import MONTHLY_TARGET_KM
+
+DASHBOARD_DIR = Path(__file__).parent.parent / "dashboard"
+
 
 def _length_km(wkt: str) -> float:
     """Very small WKT parser for LINESTRING/MULTILINESTRING lengths."""
@@ -32,12 +38,15 @@ def _length_km(wkt: str) -> float:
 
 
 app = FastAPI(title="Digitizer Demo")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:3000",   # VS-Code Live-Server
-        "http://localhost:3000", 
-        "file://",                
+        "http://127.0.0.1:3000", 
+        "http://localhost:3000",
+        "file://",
+        "http://localhost:8000", 
+                                 # makes requests to itself (the API on the same origin)
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -46,6 +55,7 @@ app.add_middleware(
 
 init_db()
 
+# API Endpoints
 @app.post("/events")
 def add_event(ev: EditEvent):
     with Session(engine) as s:
@@ -75,8 +85,8 @@ def add_event(ev: EditEvent):
 @app.get("/events")
 def list_events(limit: int = 100):
     with Session(engine) as s:
-        q = select(EditEvent).order_by(EditEvent.id.desc())  # and add  # type: ignore[attr-defined]
-        return [row.dict() for row in s.exec(q)]
+        q = select(EditEvent).order_by(EditEvent.id.desc()) # type: ignore[attr-defined]
+        return [row.model_dump() for row in s.exec(q)]
 
 
 @app.get("/stats/layers")
@@ -117,8 +127,8 @@ def kilometers_stats(month: str | None = None):
         start.replace(day=28) + datetime.timedelta(days=4)
     ).replace(day=1)
     with Session(engine) as s:
-        q = ( 
-            select(LayerStat.date, func.sum(LayerStat.kilometers))  # type: ignore[call-arg]
+        q = (
+            select(LayerStat.date, func.sum(LayerStat.kilometers)) # type: ignore[call-arg]
             .where(
                 LayerStat.layer_name == "TRONSON_JT",
                 LayerStat.date >= start,
@@ -175,3 +185,15 @@ def user_stats():
             }
             for user, data in edits.items()
         ]
+
+
+# 1. Create a route for the root path "/" to serve index.html
+@app.get("/", response_class=HTMLResponse)
+async def serve_index(request: Request):
+    index_path = DASHBOARD_DIR / "index.html"
+    if index_path.is_file():
+        with open(index_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    return HTMLResponse(content="<h1>index.html not found</h1>", status_code=404)
+
+app.mount("/dashboard_assets", StaticFiles(directory=DASHBOARD_DIR), name="dashboard_assets")
