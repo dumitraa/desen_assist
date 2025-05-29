@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Digitizing Dashboard</title>
+    <title>Monitorizare Desenatori LEA JT</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -134,61 +134,56 @@
 <body>
     <div class="container">
         <header>
-            <h1>Digitizing Dashboard</h1>
+            <h1>Panou de Monitorizare</h1>
         </header>
 
         <section id="kilometer-stats">
-            <h2>Kilometer Statistics (TRONSON_JT)</h2>
             <div class="month-selector">
-                <label for="month-picker">Select Month:</label>
+                <label for="month-picker">Selectați Luna:</label>
                 <input type="month" id="month-picker">
-                <button id="fetch-km-stats">Fetch Stats</button>
+                <button id="fetch-stats-button">Afișează Statistici</button>
             </div>
+
+            <h2>Statistici Kilometri (TRONSON_JT)</h2>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <h3>Current Month</h3>
-                    <p id="km-month">N/A</p>
+                    <h3>Luna Selectată</h3> <p id="km-month">N/A</p>
                 </div>
                 <div class="stat-card">
-                    <h3>Total KM This Month</h3>
-                    <p id="km-total">0 km</p>
+                    <h3>KM Total</h3> <p id="km-total">0 km</p>
                 </div>
                 <div class="stat-card">
-                    <h3>Monthly Target KM</h3>
+                    <h3>Target KM Total</h3>
                     <p id="km-target">0 km</p>
                 </div>
             </div>
             <div class="stat-card" style="margin-top: 20px;">
-                <h3>Progress Towards Target</h3>
-                <div class="progress-bar-container">
+                <h3>Progres Către Target</h3> <div class="progress-bar-container">
                     <div class="progress-bar" id="km-progress-bar">0%</div>
                 </div>
                 <p id="km-progress-text" style="text-align:center; margin-top:5px;">0%</p>
             </div>
-            <h3>Daily Kilometers</h3>
-            <div id="km-daily-table-container">
-                <p class="no-data" id="daily-km-no-data">No data for selected month.</p>
+            <h3>Kilometri Zilnici</h3> <div id="km-daily-table-container">
+                <p class="no-data" id="daily-km-no-data">Nu există date pentru luna selectată.</p>
             </div>
         </section>
 
         <section id="layer-stats">
-            <h2>Layer Statistics</h2>
-            <div id="layer-stats-table-container">
-                <p class="no-data">Loading layer statistics...</p>
+            <h2>Statistici Straturi</h2> <div id="layer-stats-table-container">
+                <p class="no-data">Se încarcă statisticile straturilor...</p>
             </div>
         </section>
 
         <section id="user-stats">
-            <h2>User Statistics</h2>
-            <div id="user-stats-table-container">
-                <p class="no-data">Loading user statistics...</p>
+            <h2>Statistici Utilizatori</h2> <div id="user-stats-table-container">
+                <p class="no-data">Se încarcă statisticile utilizatorilor...</p>
             </div>
         </section>
 
         <section id="live-feed">
-            <h2>Live Edit Feed (Last 100 Events)</h2>
+            <h2>Flux Editări Live (Ultimele 100 Evenimente)</h2>
             <div id="live-feed-table-container">
-                 <p class="no-data">Loading live feed...</p>
+                 <p class="no-data">Se încarcă fluxul live...</p>
             </div>
         </section>
     </div>
@@ -196,21 +191,18 @@
     <script>
         const API_BASE_URL = 'http://localhost:8000';
 
-        // Utility to create table cell
         function createCell(text) {
             const cell = document.createElement('td');
             cell.textContent = text ?? '';
             return cell;
         }
 
-        // Utility to create table header cell
         function createHeaderCell(text) {
             const cell = document.createElement('th');
             cell.textContent = text;
             return cell;
         }
 
-        // Fetch Kilometer Stats
         async function fetchKilometerStats(month = null) {
             try {
                 let url = `${API_BASE_URL}/stats/kilometers`;
@@ -223,61 +215,59 @@
 
                 document.getElementById('km-month').textContent = data.month || 'N/A';
                 document.getElementById('km-total').textContent = `${parseFloat(data.total_km || 0).toFixed(2)} km`;
-                document.getElementById('km-target').textContent = `${parseFloat(data.target_km || 0).toFixed(2)} km`;
+                document.getElementById('km-target').textContent = `${parseFloat(data.total_target || 0).toFixed(2)} km`;
 
-                const progress = parseFloat(data.progress || 0) * 100;
+                const progress = data.progress !== null ? parseFloat(data.progress) * 100 : 0; // Handle null progress
                 const progressBar = document.getElementById('km-progress-bar');
-                progressBar.style.width = `${Math.min(progress, 100)}%`; // Cap at 100% for display
+                progressBar.style.width = `${Math.min(progress, 100)}%`;
                 progressBar.textContent = `${progress.toFixed(1)}%`;
-                if (progress >= 100) {
-                    progressBar.classList.add('full');
-                } else {
-                    progressBar.classList.remove('full');
-                }
-                document.getElementById('km-progress-text').textContent = `${progress.toFixed(1)}% of target`;
-
-
+                if (progress >= 100) progressBar.classList.add('full');
+                else progressBar.classList.remove('full');
+                document.getElementById('km-progress-text').textContent = `${progress.toFixed(1)}% din target`;
+                
                 const dailyKmContainer = document.getElementById('km-daily-table-container');
-                dailyKmContainer.innerHTML = ''; // Clear previous
-                if (Object.keys(data.daily_km).length > 0) {
+                dailyKmContainer.innerHTML = '';
+                if (data.daily_km && Object.keys(data.daily_km).length > 0) { // Check if daily_km exists and is not empty
                     const table = document.createElement('table');
                     const headerRow = table.insertRow();
-                    headerRow.appendChild(createHeaderCell('Date'));
-                    headerRow.appendChild(createHeaderCell('Kilometers'));
-
+                    headerRow.appendChild(createHeaderCell('Data'));
+                    headerRow.appendChild(createHeaderCell('Kilometri'));
                     for (const [date, km] of Object.entries(data.daily_km)) {
                         const row = table.insertRow();
                         row.appendChild(createCell(date));
-                        row.appendChild(createCell(parseFloat(km).toFixed(2)));
+                        row.appendChild(createCell(parseFloat(km || 0).toFixed(2)));
                     }
                     dailyKmContainer.appendChild(table);
                 } else {
                     dailyKmContainer.innerHTML = '<p class="no-data" id="daily-km-no-data">No daily kilometer data for this month.</p>';
                 }
-
             } catch (error) {
                 console.error('Error fetching kilometer stats:', error);
                 document.getElementById('kilometer-stats').innerHTML = '<p class="no-data">Could not load kilometer statistics.</p>';
             }
         }
 
-        // Fetch Layer Stats
-        async function fetchLayerStats() {
+        // MODIFICATION START: fetchLayerStats now accepts a month parameter
+        async function fetchLayerStats(month = null) {
             try {
-                const r = await fetch(`${API_BASE_URL}/stats/layers`);
+                let url = `${API_BASE_URL}/stats/layers`;
+                if (month) {
+                    url += `?month=${month}`; // Append month to URL if provided
+                }
+                const r = await fetch(url);
+        // MODIFICATION END
                 if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 const data = await r.json();
                 const container = document.getElementById('layer-stats-table-container');
-                container.innerHTML = ''; // Clear previous
+                container.innerHTML = '';
 
                 if (data.length > 0) {
                     const table = document.createElement('table');
                     const headerRow = table.insertRow();
-                    headerRow.appendChild(createHeaderCell('Layer Name'));
-                    headerRow.appendChild(createHeaderCell('Adds'));
-                    headerRow.appendChild(createHeaderCell('Updates'));
-                    headerRow.appendChild(createHeaderCell('Deletes'));
-
+                    headerRow.appendChild(createHeaderCell('Nume Layer'));
+                    headerRow.appendChild(createHeaderCell('Adaugări'));
+                    headerRow.appendChild(createHeaderCell('Modificări'));
+                    headerRow.appendChild(createHeaderCell('Ștergeri'));
                     data.forEach(layer => {
                         const row = table.insertRow();
                         row.appendChild(createCell(layer.layer_name));
@@ -287,32 +277,37 @@
                     });
                     container.appendChild(table);
                 } else {
-                     container.innerHTML = '<p class="no-data">No layer statistics available.</p>';
+                     container.innerHTML = '<p class="no-data">Nu există statistici pentru straturi în luna selectată.</p>'; // MODIFICATION: Updated no-data message
                 }
             } catch (error) {
                 console.error('Error fetching layer stats:', error);
-                document.getElementById('layer-stats-table-container').innerHTML = '<p class="no-data">Could not load layer statistics.</p>';
+                document.getElementById('layer-stats-table-container').innerHTML = '<p class="no-data">Nu s-au putut încărca statisticile straturilor.</p>';
             }
         }
 
-        // Fetch User Stats
-        async function fetchUserStats() {
+        // MODIFICATION START: fetchUserStats now accepts a month parameter (Re-applying)
+        async function fetchUserStats(month = null) {
             try {
-                const r = await fetch(`${API_BASE_URL}/stats/users`);
+                let url = `${API_BASE_URL}/stats/users`;
+                if (month) {
+                    url += `?month=${month}`; // Append month to URL if provided
+                }
+                const r = await fetch(url);
+        // MODIFICATION END
                  if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 const data = await r.json();
                 const container = document.getElementById('user-stats-table-container');
-                container.innerHTML = ''; // Clear previous
+                container.innerHTML = '';
 
                 if (data.length > 0) {
                     const table = document.createElement('table');
                     const headerRow = table.insertRow();
-                    headerRow.appendChild(createHeaderCell('User'));
-                    headerRow.appendChild(createHeaderCell('Sessions'));
-                    headerRow.appendChild(createHeaderCell('Adds'));
-                    headerRow.appendChild(createHeaderCell('Updates'));
-                    headerRow.appendChild(createHeaderCell('Deletes'));
-
+                    headerRow.appendChild(createHeaderCell('Utilizator'));
+                    headerRow.appendChild(createHeaderCell('Sesiuni'));
+                    headerRow.appendChild(createHeaderCell('Adăugări'));
+                    headerRow.appendChild(createHeaderCell('Modificări'));
+                    headerRow.appendChild(createHeaderCell('Ștergeri'));
+                    headerRow.appendChild(createHeaderCell('KM (Luna selectată)'));
                     data.forEach(user => {
                         const row = table.insertRow();
                         row.appendChild(createCell(user.user));
@@ -320,10 +315,11 @@
                         row.appendChild(createCell(user.adds));
                         row.appendChild(createCell(user.updates));
                         row.appendChild(createCell(user.deletes));
+                        row.appendChild(createCell(parseFloat(user.total_km || 0).toFixed(2) + ' km'));
                     });
                     container.appendChild(table);
                 } else {
-                    container.innerHTML = '<p class="no-data">No user statistics available.</p>';
+                    container.innerHTML = '<p class="no-data">No user statistics available for the selected month.</p>'; // MODIFICATION: Updated no-data message
                 }
             } catch (error) {
                 console.error('Error fetching user stats:', error);
@@ -331,79 +327,87 @@
             }
         }
 
-        // Fetch Live Event Feed
         async function fetchEventFeed() {
             try {
-                const r = await fetch(`${API_BASE_URL}/events`);
+                const r = await fetch(`${API_BASE_URL}/events`); // Consider adding ?limit=100 if not default in API
                 if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 const rows = await r.json();
                 const container = document.getElementById('live-feed-table-container');
-                container.innerHTML = ''; // Clear previous
-
+                container.innerHTML = '';
                 if (rows.length > 0) {
                     const table = document.createElement('table');
                     const headerRow = table.insertRow();
-                    headerRow.appendChild(createHeaderCell('Time'));
-                    headerRow.appendChild(createHeaderCell('User'));
+                    headerRow.appendChild(createHeaderCell('Timp'));
+                    headerRow.appendChild(createHeaderCell('Utilizator'));
                     headerRow.appendChild(createHeaderCell('Layer'));
-                    headerRow.appendChild(createHeaderCell('Action'));
-                    headerRow.appendChild(createHeaderCell('FID'));
-                    headerRow.appendChild(createHeaderCell('Field'));
-                    headerRow.appendChild(createHeaderCell('Value'));
-
+                    headerRow.appendChild(createHeaderCell('Acțiune'));
+                    headerRow.appendChild(createHeaderCell('Coloană'));
+                    headerRow.appendChild(createHeaderCell('Valoare'));
                     rows.forEach(e => {
                         const row = table.insertRow();
                         row.appendChild(createCell(new Date(e.ts * 1000).toLocaleString()));
                         row.appendChild(createCell(e.user));
                         row.appendChild(createCell(e.layer));
                         row.appendChild(createCell(e.action));
-                        row.appendChild(createCell(e.fid));
                         row.appendChild(createCell(e.field));
                         row.appendChild(createCell(e.value));
                     });
                     container.appendChild(table);
                 } else {
-                    container.innerHTML = '<p class="no-data">No live events to display.</p>';
+                    container.innerHTML = '<p class="no-data">Nu există evenimente recente.</p>';
                 }
             } catch (error) {
                 console.error('Error fetching event feed:', error);
-                document.getElementById('live-feed-table-container').innerHTML = '<p class="no-data">Could not load live event feed.</p>';
+                document.getElementById('live-feed-table-container').innerHTML = '<p class="no-data">Nu s-au putut încărca evenimentele live.</p>';
             }
         }
 
-        // Initialize Dashboard
         function initializeDashboard() {
-            // Set default month for picker (current month)
             const today = new Date();
             const year = today.getFullYear();
-            const month = (today.getMonth() + 1).toString().padStart(2, '0'); // JavaScript months are 0-indexed
+            const month = (today.getMonth() + 1).toString().padStart(2, '0');
             const defaultMonth = `${year}-${month}`;
             document.getElementById('month-picker').value = defaultMonth;
 
-            // Fetch initial data
+            // MODIFICATION START: Pass defaultMonth to all relevant fetch functions
             fetchKilometerStats(defaultMonth);
-            fetchLayerStats();
-            fetchUserStats();
-            fetchEventFeed();
+            fetchLayerStats(defaultMonth);
+            fetchUserStats(defaultMonth);
+            // MODIFICATION END
+            fetchEventFeed(); // Live feed is not month-dependent
 
-            // Setup auto-refresh (adjust intervals as needed)
-            setInterval(fetchKilometerStats.bind(null, document.getElementById('month-picker').value), 60000); // Every minute for current month KM
-            setInterval(fetchLayerStats, 60000);  // Every minute
-            setInterval(fetchUserStats, 60000);   // Every minute
-            setInterval(fetchEventFeed, 5000);    // Every 5 seconds for live feed
+            // MODIFICATION START: Update setInterval calls to pass the selected month
+            // Using function wrappers for setInterval to ensure the latest month value is used.
+            setInterval(() => {
+                const currentSelectedMonth = document.getElementById('month-picker').value;
+                fetchKilometerStats(currentSelectedMonth);
+            }, 60000);
 
-            // Event listener for month picker button
-            document.getElementById('fetch-km-stats').addEventListener('click', () => {
+            setInterval(() => {
+                const currentSelectedMonth = document.getElementById('month-picker').value;
+                fetchLayerStats(currentSelectedMonth);
+            }, 60000);
+
+            setInterval(() => {
+                const currentSelectedMonth = document.getElementById('month-picker').value;
+                fetchUserStats(currentSelectedMonth);
+            }, 60000);
+            // MODIFICATION END
+            setInterval(fetchEventFeed, 5000);
+
+            // MODIFICATION START: Update button event listener
+            document.getElementById('fetch-stats-button').addEventListener('click', () => { // Changed ID from fetch-km-stats
                 const selectedMonth = document.getElementById('month-picker').value;
                 if (selectedMonth) {
                     fetchKilometerStats(selectedMonth);
+                    fetchLayerStats(selectedMonth); // Also fetch layer stats
+                    fetchUserStats(selectedMonth);  // Also fetch user stats
                 } else {
                     alert("Please select a month.");
                 }
             });
         }
 
-        // Load dashboard when the DOM is ready
         document.addEventListener('DOMContentLoaded', initializeDashboard);
     </script>
 </body>

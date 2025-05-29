@@ -14,8 +14,10 @@ BACKEND_URL = _get("backend", "url", "http://localhost:8000")
 BACKEND_URL = BACKEND_URL.rstrip("/") if BACKEND_URL else BACKEND_URL
 TIMEOUT     = float(_get("backend", "timeout", 1))
 
-LAYERS      = [
-    n.strip() for n in _get("layers", "watch", "").split(",") if n.strip()
+layers_value_str = _get("layers", "watch", "")
+
+LAYERS = [
+    n.strip() for n in (layers_value_str or "").split(",") if n.strip()
 ]
 
 AUTH_TOKEN  = _get("auth", "token", None)
