@@ -224,7 +224,7 @@
                 if (progress >= 100) progressBar.classList.add('full');
                 else progressBar.classList.remove('full');
                 document.getElementById('km-progress-text').textContent = `${progress.toFixed(1)}% din target`;
-                
+
                 const dailyKmContainer = document.getElementById('km-daily-table-container');
                 dailyKmContainer.innerHTML = '';
                 if (data.daily_km && Object.keys(data.daily_km).length > 0) { // Check if daily_km exists and is not empty
@@ -247,7 +247,6 @@
             }
         }
 
-        // MODIFICATION START: fetchLayerStats now accepts a month parameter
         async function fetchLayerStats(month = null) {
             try {
                 let url = `${API_BASE_URL}/stats/layers`;
@@ -255,7 +254,7 @@
                     url += `?month=${month}`; // Append month to URL if provided
                 }
                 const r = await fetch(url);
-        // MODIFICATION END
+
                 if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 const data = await r.json();
                 const container = document.getElementById('layer-stats-table-container');
@@ -285,7 +284,6 @@
             }
         }
 
-        // MODIFICATION START: fetchUserStats now accepts a month parameter (Re-applying)
         async function fetchUserStats(month = null) {
             try {
                 let url = `${API_BASE_URL}/stats/users`;
@@ -293,8 +291,8 @@
                     url += `?month=${month}`; // Append month to URL if provided
                 }
                 const r = await fetch(url);
-        // MODIFICATION END
-                 if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+
+                if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
                 const data = await r.json();
                 const container = document.getElementById('user-stats-table-container');
                 container.innerHTML = '';
@@ -369,14 +367,11 @@
             const defaultMonth = `${year}-${month}`;
             document.getElementById('month-picker').value = defaultMonth;
 
-            // MODIFICATION START: Pass defaultMonth to all relevant fetch functions
             fetchKilometerStats(defaultMonth);
             fetchLayerStats(defaultMonth);
             fetchUserStats(defaultMonth);
-            // MODIFICATION END
             fetchEventFeed(); // Live feed is not month-dependent
 
-            // MODIFICATION START: Update setInterval calls to pass the selected month
             // Using function wrappers for setInterval to ensure the latest month value is used.
             setInterval(() => {
                 const currentSelectedMonth = document.getElementById('month-picker').value;
@@ -392,10 +387,8 @@
                 const currentSelectedMonth = document.getElementById('month-picker').value;
                 fetchUserStats(currentSelectedMonth);
             }, 60000);
-            // MODIFICATION END
             setInterval(fetchEventFeed, 5000);
 
-            // MODIFICATION START: Update button event listener
             document.getElementById('fetch-stats-button').addEventListener('click', () => { // Changed ID from fetch-km-stats
                 const selectedMonth = document.getElementById('month-picker').value;
                 if (selectedMonth) {
