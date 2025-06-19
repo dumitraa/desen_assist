@@ -162,7 +162,15 @@ class VectorVerifier:
         f.setAttribute("FID", fid)
         f.setAttribute("TIP_EROARE", tip)
         f.setAttribute("DETALII", det)
-        self._erori_stalp.addFeature(f)
+        try:
+            self._erori_stalp.addFeature(f)
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to add error point feature: {e}",
+                "DesenAssist",
+                level=Qgis.Critical
+            )
+            return
 
     def _add_err_line(self, geom: QgsGeometry, layer_name: str, fid: int, tip: str, det: str):
         f = QgsFeature(self._erori_line.fields())
@@ -171,7 +179,15 @@ class VectorVerifier:
         f.setAttribute("FID", fid)
         f.setAttribute("TIP_EROARE", tip)
         f.setAttribute("DETALII", det)
-        self._erori_line.addFeature(f)
+        try:
+            self._erori_line.addFeature(f)
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"Failed to add error line feature: {e}",
+                "DesenAssist",
+                level=Qgis.Critical
+            )
+            return        
 
     # ------------------------------------------------------------------
     #  Geometry utilities
@@ -362,10 +378,10 @@ class VectorVerifier:
                         QgsGeometry.fromPointXY(pt))
                     for pid in bb_ids
                 )
-
+                err_geom = tron.getFeature(tid).geometry()
                 if not has_pole:
                     self._add_err_line(
-                        QgsGeometry.fromPointXY(pt), "TRONSON_JT", tid,
+                        err_geom, "TRONSON_JT", tid,
                         "Sfârșit tronson fără STÂLP",
                         "Capăt de TRONSON fără STALP_JT corespunzător",
                     )
@@ -411,7 +427,7 @@ class VectorVerifier:
                 if self._brans.getFeature(bid).geometry().intersects(pole_geom)
             ]
 
-            if len(br_hits) == 1:
+            if len(br_hits) >= 1:
                 tip_firi = str(br_hits[0]['TIP_FIRI_BR']).strip().lower()
                 if tip_firi in {'bmpm', 'bmpt'} \
                 and tip_leg not in ('t', 't/d') \
@@ -423,14 +439,6 @@ class VectorVerifier:
                         f"TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. Valoare actuală: {tip_leg}"
                     )
                     continue
-            # --- 4.b generic check ----------
-            if tip_leg not in ('t', 't/d') and all(c not in allowed_cond for c in cond_list):
-                self._add_err_point(
-                    pole_geom, "STALP_JT", pid,
-                    "STÂLP final fără TIP_LEG adecvat",
-                    f"La capăt de TRONSON, TIP_LEG_JT trebuie să fie ‘t’ sau ‘t/d’. "
-                    f"Valoare actuală: `{tip_leg}`."
-                )
 
     # ------------------------------------------------------------------
     #  RULE 6 – Întindere (ramificare) – ≥3 intersects & wrong TIP_LEG_JT
