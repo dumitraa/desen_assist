@@ -42,11 +42,12 @@ app = FastAPI(title="Digitizer Demo")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:3000", 
+        "http://127.0.0.1:3000",
         "http://localhost:3000",
         "file://",
-        "http://localhost:8000", 
-                                 # makes requests to itself (the API on the same origin)
+        "http://localhost:8000",
+        "http://188.213.20.203:8000",
+        "http://188.213.20.203"       
     ],
     allow_credentials=True,
     allow_methods=["*"],

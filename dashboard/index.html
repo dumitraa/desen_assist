@@ -189,7 +189,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://localhost:8000';
+        const API_BASE_URL = 'http://188.213.20.203:8000';
 
         function createCell(text) {
             const cell = document.createElement('td');
@@ -303,7 +303,7 @@
                     headerRow.appendChild(createHeaderCell('Utilizator'));
                     headerRow.appendChild(createHeaderCell('Sesiuni'));
                     headerRow.appendChild(createHeaderCell('Adăugări'));
-                    headerRow.appendChild(createHeaderCell('Modificări'));
+                    headerRow.apendChild(createHeaderCell('Modificări'));
                     headerRow.appendChild(createHeaderCell('Ștergeri'));
                     headerRow.appendChild(createHeaderCell('KM (Luna selectată)'));
                     data.forEach(user => {
